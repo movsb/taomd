@@ -1,7 +1,11 @@
 package main
 
 type Document struct {
-	blocks []interface{}
+	example int
+	blocks  []interface{}
+}
+
+type BlankLine struct {
 }
 
 // HorizontalRule is a horizontal rule (thematic breaks).
@@ -10,5 +14,14 @@ type HorizontalRule struct {
 }
 
 type Paragraph struct {
+	texts []string
+}
+
+type Line struct {
 	text string
+}
+
+type Heading struct {
+	Level int
+	text  string
 }
