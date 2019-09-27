@@ -25,3 +25,34 @@ type Heading struct {
 	Level int
 	text  string
 }
+
+type CodeBlock struct {
+	Lang   string
+	chunks []*_CodeChunk
+}
+
+func (s *CodeBlock) String() string {
+	i := 0
+
+	for i < len(s.chunks) && s.chunks[i].text == "" {
+		i++
+	}
+	s.chunks = s.chunks[i:]
+
+	i = len(s.chunks) - 1
+	for i > 0 && s.chunks[i].text == "" {
+		i--
+	}
+	s.chunks = s.chunks[:i+1]
+
+	t := ""
+
+	for _, c := range s.chunks {
+		t += c.text + "\n"
+	}
+	return t
+}
+
+type _CodeChunk struct {
+	text string
+}

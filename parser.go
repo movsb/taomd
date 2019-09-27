@@ -11,12 +11,12 @@ func isSpace(c rune) bool {
 	return c == ' '
 }
 
-func skipSpaces(r []rune, atMost int) ([]rune, int) {
+func peekSpaces(r []rune, atMost int) ([]rune, int) {
 	n := 0
-	for n < atMost && isSpace(r[n]) {
+	for n < atMost && n < len(r) && isSpace(r[n]) {
 		n++
 	}
-	return r[n:], n
+	return r, n
 }
 
 func skipEnding(c []rune) ([]rune, bool) {
@@ -63,8 +63,13 @@ func parse(in string, example int) *Document {
 	for len(c) > 0 {
 		c, thisBlock = parseBlock(c[i:])
 		if _, ok := thisBlock.(*BlankLine); ok {
-			lastBlock = nil
-			continue
+			switch lastBlock.(type) {
+			default:
+				lastBlock = nil
+				continue
+			case *CodeBlock:
+				break
+			}
 		}
 		block, merged := tryMerge(lastBlock, thisBlock)
 		if merged {
@@ -82,39 +87,51 @@ func parse(in string, example int) *Document {
 
 func tryMerge(b1 interface{}, b2 interface{}) (interface{}, bool) {
 	switch t1 := b1.(type) {
-	default:
-		switch t2 := b2.(type) {
-		case *Line:
-			return &Paragraph{
-				texts: []string{
-					t2.text,
-				},
-			}, false
-		}
-	case nil:
-		switch t2 := b2.(type) {
-		case *Line:
-			return &Paragraph{
-				texts: []string{
-					t2.text,
-				},
-			}, true
-		}
 	case *Paragraph:
 		switch t2 := b2.(type) {
 		case *Line:
 			t1.texts = append(t1.texts, t2.text)
 			return t1, true
+		// An indented code block cannot interrupt a paragraph
+		case *_CodeChunk:
+			t1.texts = append(t1.texts, t2.text)
+			return t1, true
+		}
+	case *CodeBlock:
+		switch t2 := b2.(type) {
+		case *_CodeChunk:
+			t1.chunks = append(t1.chunks, t2)
+			return t1, true
+		case *BlankLine:
+			t1.chunks = append(t1.chunks, &_CodeChunk{
+				text: "",
+			})
+			return t1, true
 		}
 	}
+
+	switch t2 := b2.(type) {
+	case *Line:
+		return &Paragraph{
+			texts: []string{
+				t2.text,
+			},
+		}, false
+	case *_CodeChunk:
+		return &CodeBlock{
+			chunks: []*_CodeChunk{t2},
+		}, false
+	}
+
 	return b2, false
 }
 
 func parseBlock(c []rune) ([]rune, interface{}) {
 	// var content string
 
-	c, n := skipSpaces(c, 4)
+	_, n := peekSpaces(c, 4)
 	if n >= 0 && n <= 3 {
+		c = c[n:]
 		if _, ok := in(c, ' ', '\n'); ok {
 			if nc, bl := tryParseBlankLine(c); bl != nil {
 				return nc, bl
@@ -131,9 +148,18 @@ func parseBlock(c []rune) ([]rune, interface{}) {
 			}
 		}
 		return parseLine(c)
+	} else if n == 4 {
+		return parseIndentedCodeChunk(c)
 	}
 
 	return c, nil
+}
+
+func parseIndentedCodeChunk(c []rune) ([]rune, *_CodeChunk) {
+	c, line := parseLine(c[4:])
+	return c, &_CodeChunk{
+		text: line.text,
+	}
 }
 
 func tryParseBlankLine(c []rune) ([]rune, *BlankLine) {

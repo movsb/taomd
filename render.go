@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"html"
 	"reflect"
 	"strings"
 )
@@ -22,6 +23,8 @@ func render(doc *Document) string {
 			s += "<hr />\n"
 		case *Heading:
 			s += fmt.Sprintf("<h%[1]d>%s</h%[1]d>\n", typed.Level, typed.text)
+		case *CodeBlock:
+			s += fmt.Sprintf("<pre><code>%s</code></pre>\n", html.EscapeString(typed.String()))
 		}
 	}
 
