@@ -262,9 +262,13 @@ func tryParseAtxHeading(c []rune) ([]rune, *Heading) {
 		}
 
 		//  ... preceded by a space ...
-		if c[j] == ' ' {
-			j--
-			end = j + 1
+		if j > start {
+			if c[j] == ' ' {
+				j--
+				end = j + 1
+			}
+		} else {
+			end = start
 		}
 	}
 
