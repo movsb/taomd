@@ -1,5 +1,7 @@
 package main
 
+import "fmt"
+
 func render(doc *Document) string {
 	var s string
 
@@ -7,6 +9,8 @@ func render(doc *Document) string {
 		switch typed := block.(type) {
 		default:
 			panic("unhandled block")
+		case *Paragraph:
+			s += fmt.Sprintf("<p>%s</p>\n", typed.text)
 		case *HorizontalRule:
 			_ = typed
 			s += "<hr />\n"

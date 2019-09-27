@@ -35,15 +35,15 @@ func main() {
 		}
 	}
 
-	example := "13"
+	example := ""
 
 	if example == "" {
 		example = os.Args[1]
 	}
 
 	t := m[example]
-	if render(parse(t.Markdown)) != t.HTML {
-		fmt.Println(t.Markdown, "!=", t.HTML)
+	if h := render(parse(t.Markdown)); h != t.HTML {
+		fmt.Println(t.Markdown, ":\n", t.HTML, "\n--------------------------------\n", h)
 	} else {
 		saveTestResults(example)
 		fmt.Println("pass")
@@ -65,7 +65,7 @@ func loadTestResults() map[string]bool {
 }
 
 func saveTestResults(example string) {
-	fp, err := os.OpenFile("result.txt", os.O_RDWR, 0)
+	fp, err := os.OpenFile("result.txt", os.O_RDWR|os.O_APPEND, 0)
 	if err != nil {
 		panic(err)
 	}

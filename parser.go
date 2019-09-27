@@ -20,13 +20,7 @@ func skipEnding(c []rune) ([]rune, bool) {
 		return c, true
 	}
 
-	if c[0] == '\r' {
-		if len(c) > 1 && c[1] == '\n' {
-			return c[2:], true
-		} else {
-			return c[1:], true
-		}
-	} else if c[0] == '\n' {
+	if c[0] == '\n' {
 		return c[1:], true
 	}
 
@@ -73,16 +67,17 @@ func parseBlock(c []rune) ([]rune, interface{}) {
 	c, n := skipSpaces(c, 4)
 	if n >= 0 && n <= 3 {
 		if r, ok := in(c, '*', '-', '_'); ok {
-			if nc, ok := tryParseHorizontalRule(c, r); ok {
-				return nc, &HorizontalRule{}
+			if nc, hr := tryParseHorizontalRule(c, r); hr != nil {
+				return nc, hr
 			}
 		}
+		return parseParagraph(c)
 	}
 
 	return c, nil
 }
 
-func tryParseHorizontalRule(c []rune, start rune) ([]rune, bool) {
+func tryParseHorizontalRule(c []rune, start rune) ([]rune, *HorizontalRule) {
 	i := 0
 	loop := true
 
@@ -96,8 +91,20 @@ func tryParseHorizontalRule(c []rune, start rune) ([]rune, bool) {
 	}
 
 	if nc, ok := skipEnding(c[i:]); ok {
-		return nc, ok
+		return nc, &HorizontalRule{}
 	}
 
-	return c, false
+	return c, nil
+}
+
+func parseParagraph(c []rune) ([]rune, *Paragraph) {
+	i, n := 0, len(c)
+	for i < n && c[i] != '\n' {
+		i++
+	}
+	e := i
+	if i < n && c[i] == '\n' {
+		i++
+	}
+	return c[i:], &Paragraph{string(c[:e])}
 }
