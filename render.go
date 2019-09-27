@@ -8,7 +8,7 @@ func render(doc *Document) string {
 	for _, block := range doc.blocks {
 		switch typed := block.(type) {
 		default:
-			panic("unhandled block")
+			panic("unhandled block" + fmt.Sprint(typed))
 		case *Paragraph:
 			s += fmt.Sprintf("<p>%s</p>\n", typed.text)
 		case *HorizontalRule:
