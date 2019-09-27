@@ -28,14 +28,16 @@ func main() {
 		m[fmt.Sprint(t.Example)] = t
 	}
 
-	for k := range loadTestResults() {
-		t := m[k]
-		if render(parse(t.Markdown)) != t.HTML {
-			panic("break: " + k)
+	example := ""
+
+	if example == "" {
+		for k := range loadTestResults() {
+			t := m[k]
+			if render(parse(t.Markdown)) != t.HTML {
+				panic("break: " + k)
+			}
 		}
 	}
-
-	example := ""
 
 	if example == "" {
 		example = os.Args[1]
@@ -43,7 +45,14 @@ func main() {
 
 	t := m[example]
 	if h := render(parse(t.Markdown)); h != t.HTML {
-		fmt.Println(t.Markdown, ":\n", t.HTML, "\n--------------------------------\n", h)
+		fmt.Printf(`----------Markdown----------
+%s
+------------Want------------
+%s
+------------Given-----------
+%s
+`, t.Markdown, t.HTML, h,
+		)
 	} else {
 		saveTestResults(example)
 		fmt.Println("pass")

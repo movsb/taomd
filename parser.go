@@ -80,14 +80,22 @@ func parseBlock(c []rune) ([]rune, interface{}) {
 func tryParseHorizontalRule(c []rune, start rune) ([]rune, *HorizontalRule) {
 	i := 0
 	loop := true
+	n := 0
 
 	for loop && i < len(c) {
 		switch c[i] {
-		case start, ' ', '\t':
+		case start:
+			n++
+			i++
+		case ' ', '\t':
 			i++
 		default:
 			loop = false
 		}
+	}
+
+	if n < 3 {
+		return c, nil
 	}
 
 	if nc, ok := skipEnding(c[i:]); ok {
@@ -99,12 +107,28 @@ func tryParseHorizontalRule(c []rune, start rune) ([]rune, *HorizontalRule) {
 
 func parseParagraph(c []rune) ([]rune, *Paragraph) {
 	i, n := 0, len(c)
-	for i < n && c[i] != '\n' {
+	end := 0
+	for {
+		// skip to line ending or eof
+		for i < n && c[i] != '\n' {
+			i++
+		}
+		// eof
+		if i >= n {
+			end = i
+			break
+		}
+		// \n
 		i++
+		if i >= n {
+			end = i - 1
+			break
+		}
+		if i < n && c[i] == '\n' {
+			end = i - 1
+			i++
+			break
+		}
 	}
-	e := i
-	if i < n && c[i] == '\n' {
-		i++
-	}
-	return c[i:], &Paragraph{string(c[:e])}
+	return c[i:], &Paragraph{string(c[:end])}
 }
