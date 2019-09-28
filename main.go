@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -39,9 +40,11 @@ func main() {
 %s
 ------------Want------------
 %s
+%s
 ------------Given-----------
 %s
-`, t.Markdown, t.HTML, h,
+%s
+`, t.Markdown, t.HTML, hex.Dump([]byte(t.HTML)), h, hex.Dump([]byte(h)),
 				)
 			}
 		}
@@ -57,9 +60,11 @@ func main() {
 %s
 ------------Want------------
 %s
+%s
 ------------Given-----------
 %s
-`, t.Markdown, t.HTML, h,
+%s
+`, t.Markdown, t.HTML, hex.Dump([]byte(t.HTML)), h, hex.Dump([]byte(h)),
 		)
 	} else {
 		saveTestResults(example)

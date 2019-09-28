@@ -131,6 +131,7 @@ func parseBlock(c []rune) ([]rune, interface{}) {
 
 	_, n := peekSpaces(c, 4)
 	if n >= 0 && n <= 3 {
+		oc := c
 		c = c[n:]
 		if _, ok := in(c, ' ', '\n'); ok {
 			if nc, bl := tryParseBlankLine(c); bl != nil {
@@ -145,6 +146,11 @@ func parseBlock(c []rune) ([]rune, interface{}) {
 		if _, ok := in(c, '#'); ok {
 			if nc, heading := tryParseAtxHeading(c); heading != nil {
 				return nc, heading
+			}
+		}
+		if _, ok := in(c, '`', '~'); ok {
+			if nc, code := tryParseFencedCodeBlock(oc, n); code != nil {
+				return nc, code
 			}
 		}
 		return parseLine(c)
@@ -306,5 +312,94 @@ func tryParseAtxHeading(c []rune) ([]rune, *Heading) {
 	return c[cEnd:], &Heading{
 		Level: n,
 		text:  text,
+	}
+}
+
+func tryParseFencedCodeBlock(c []rune, indent int) ([]rune, *CodeBlock) {
+	old := c
+	leadingSpaces := 0
+
+	if _, n := peekSpaces(c, indent); n > 0 {
+		c = c[n:]
+		leadingSpaces = n
+	}
+
+	i, n := 0, 0
+	sign := c[0]
+
+	// at least three consecutive backtick characters (`) or tildes (~)
+	for i < len(c) && c[i] == sign {
+		n++
+		i++
+	}
+
+	if n < 3 {
+		return old, nil
+	}
+
+	// The line with the opening code fence may optionally
+	// contain some text following the code fence;
+	// this is trimmed of leading and trailing whitespace and called the info string.
+	infoStart := i
+
+	j := infoStart
+	for j < len(c) && c[j] != '\n' {
+		j++
+	}
+
+	// eof
+	if j == len(c) {
+		return c[j:], &CodeBlock{}
+	}
+
+	j++
+	infoEnd := j
+
+	infoText := strings.TrimSpace(string(c[infoStart:infoEnd]))
+
+	// TODO If the info string comes after a backtick fence, it may not contain any backtick characters.
+
+	// The content of the code block consists of all subsequent lines,
+	var lines []string
+	c = c[j:]
+	for len(c) > 0 {
+		var line *Line
+		c, line = parseLine(c)
+		sn := 0
+		// If the leading code fence is indented N spaces,
+		// then up to N spaces of indentation are removed
+		s := strings.TrimLeftFunc(line.text, func(r rune) bool {
+			if sn < leadingSpaces && r == ' ' {
+				sn++
+				return true
+			}
+			return false
+		})
+		// until a closing code fence of the same type as the code block
+		// began with (backticks or tildes), and with at least as many backticks
+		// or tildes as the opening code fence.
+		sn = 0
+		trimS := strings.TrimLeftFunc(s, func(r rune) bool {
+			if sn < 3 && r == ' ' {
+				sn++
+				return true
+			}
+			return false
+		})
+		startSign := strings.Repeat(string(sign), n)
+		allSign := strings.Repeat(string(sign), len(trimS))
+		if strings.HasPrefix(trimS, startSign) && trimS == allSign {
+			break
+		}
+		lines = append(lines, s)
+	}
+
+	return c, &CodeBlock{
+		Lang: infoText,
+		chunks: []*_CodeChunk{
+			&_CodeChunk{
+				text: strings.Join(lines, "\n"),
+			},
+		},
 	}
 }

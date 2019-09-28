@@ -24,7 +24,19 @@ func render(doc *Document) string {
 		case *Heading:
 			s += fmt.Sprintf("<h%[1]d>%s</h%[1]d>\n", typed.Level, typed.text)
 		case *CodeBlock:
-			s += fmt.Sprintf("<pre><code>%s</code></pre>\n", html.EscapeString(typed.String()))
+			if typed.Lang == "" {
+				s += fmt.Sprintf("<pre><code>%s</code></pre>\n", html.EscapeString(typed.String()))
+			} else {
+				lang := typed.Lang
+				if p := strings.IndexAny(lang, " \t"); p != -1 {
+					lang = lang[:p]
+				}
+				s += fmt.Sprintf(
+					"<pre><code class=\"language-%s\">%s</code></pre>\n",
+					lang,
+					html.EscapeString(typed.String()),
+				)
+			}
 		}
 	}
 
