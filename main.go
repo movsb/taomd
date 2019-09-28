@@ -34,6 +34,7 @@ func main() {
 	if example == "" {
 		for k := range loadTestResults() {
 			t := m[k]
+			// fmt.Println("retest:", t.Example)
 			if h := render(parse(t.Markdown, t.Example)); h != t.HTML {
 				fmt.Println("break:", t.Example)
 				fmt.Printf(`----------Markdown----------

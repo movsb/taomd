@@ -25,6 +25,15 @@ func escapeHTML(r rune) []rune {
 	return []rune{r}
 }
 
+func escapeHTMLString(s string) string {
+	return strings.NewReplacer(
+		`"`, "&quot;",
+		`&`, "&amp;",
+		`<`, "&lt;",
+		`>`, "&gt;",
+	).Replace(s)
+}
+
 var punctuations = map[rune]int{
 	'!':  1,
 	'"':  1,
@@ -419,7 +428,10 @@ func tryParseFencedCodeBlock(c []rune, indent int) ([]rune, *CodeBlock) {
 
 	infoText := strings.TrimSpace(string(c[infoStart:infoEnd]))
 
-	// TODO If the info string comes after a backtick fence, it may not contain any backtick characters.
+	// If the info string comes after a backtick fence, it may not contain any backtick characters.
+	if strings.IndexByte(infoText, byte(sign)) != -1 {
+		return old, nil
+	}
 
 	// The content of the code block consists of all subsequent lines,
 	var lines []string
@@ -463,5 +475,74 @@ func tryParseFencedCodeBlock(c []rune, indent int) ([]rune, *CodeBlock) {
 				text: strings.Join(lines, "\n"),
 			},
 		},
+	}
+}
+
+func tryParseCodeSpan(c []rune) ([]rune, *CodeSpan) {
+	i := 0
+
+	// a string of one or more backtick characters
+	startTickCount := 0
+	for i < len(c) && c[i] == '`' {
+		startTickCount++
+		i++
+	}
+
+	// eof, leave it unchanged
+	if i == len(c) {
+		return c, nil
+	}
+
+	var text string
+
+	ap := func(s []rune) {
+		text += string(s)
+	}
+
+	for i < len(c) {
+		start := i
+
+		for {
+			// count to line ending
+			for i < len(c) && c[i] != '`' && c[i] != '\n' {
+				i++
+			}
+
+			// eof
+			if i == len(c) {
+				return c, nil
+			}
+
+			// eol
+			if c[i] == '\n' {
+				// for `First, line endings are converted to spaces.`
+				ap(c[start:i])
+				ap([]rune(" "))
+				i++
+				break
+			}
+
+			endTickStart := i
+
+			for i < len(c) && c[i] == '`' {
+				i++
+			}
+
+			if i-endTickStart == startTickCount {
+				ap(c[start:endTickStart])
+				goto exit
+			}
+
+			// eof
+			if i == len(c) {
+				return c, nil
+			}
+		}
+	}
+
+exit:
+
+	return c[i:], &CodeSpan{
+		text: text,
 	}
 }
