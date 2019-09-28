@@ -17,7 +17,7 @@ func render(doc *Document) string {
 		case *BlankLine:
 			s += "\n"
 		case *Paragraph:
-			s += fmt.Sprintf("<p>%s</p>\n", strings.Join(typed.texts, "\n"))
+			s += fmt.Sprintf("<p>%s</p>\n", typed.Text)
 		case *HorizontalRule:
 			_ = typed
 			s += "<hr />\n"

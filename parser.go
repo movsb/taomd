@@ -11,6 +11,60 @@ func isSpace(c rune) bool {
 	return c == ' '
 }
 
+func escapeHTML(r rune) []rune {
+	switch r {
+	case '"':
+		return []rune("&quot;")
+	case '&':
+		return []rune("&amp;")
+	case '<':
+		return []rune("&lt;")
+	case '>':
+		return []rune("&gt;")
+	}
+	return []rune{r}
+}
+
+var punctuations = map[rune]int{
+	'!':  1,
+	'"':  1,
+	'#':  1,
+	'$':  1,
+	'%':  1,
+	'&':  1,
+	'\'': 1,
+	'(':  1,
+	')':  1,
+	'*':  1,
+	'+':  1,
+	',':  1,
+	'-':  1,
+	'.':  1,
+	'/':  1,
+	':':  1,
+	';':  1,
+	'<':  1,
+	'=':  1,
+	'>':  1,
+	'?':  1,
+	'@':  1,
+	'[':  1,
+	'\\': 1,
+	']':  1,
+	'^':  1,
+	'_':  1,
+	'`':  1,
+	'{':  1,
+	'|':  1,
+	'}':  1,
+	'~':  1,
+}
+
+func isPunctuation(r rune) bool {
+	_, ok := punctuations[r]
+	return ok
+}
+
 func peekSpaces(r []rune, atMost int) ([]rune, int) {
 	n := 0
 	for n < atMost && n < len(r) && isSpace(r[n]) {
@@ -80,6 +134,14 @@ func parse(in string, example int) *Document {
 			doc.blocks = append(doc.blocks, block)
 		}
 		lastBlock = block
+	}
+
+	for _, block := range doc.blocks {
+		if parser, ok := block.(interface {
+			ParseInlines()
+		}); ok {
+			parser.ParseInlines()
+		}
 	}
 
 	return &doc
