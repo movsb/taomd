@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -36,17 +35,8 @@ func main() {
 			t := m[k]
 			// fmt.Println("retest:", t.Example)
 			if h := render(parse(t.Markdown, t.Example)); h != t.HTML {
-				fmt.Println("break:", t.Example)
-				fmt.Printf(`----------Markdown----------
-%s
-------------Want------------
-%s
-%s
-------------Given-----------
-%s
-%s
-`, t.Markdown, t.HTML, hex.Dump([]byte(t.HTML)), h, hex.Dump([]byte(h)),
-				)
+				fmt.Printf("break: %d\n", t.Example)
+				dumpFail(t.Markdown, t.HTML, h)
 			}
 		}
 	}
@@ -57,16 +47,7 @@ func main() {
 
 	t := m[example]
 	if h := render(parse(t.Markdown, t.Example)); h != t.HTML {
-		fmt.Printf(`----------Markdown----------
-%s
-------------Want------------
-%s
-%s
-------------Given-----------
-%s
-%s
-`, t.Markdown, t.HTML, hex.Dump([]byte(t.HTML)), h, hex.Dump([]byte(h)),
-		)
+		dumpFail(t.Markdown, t.HTML, h)
 	} else {
 		saveTestResults(example)
 		fmt.Println("pass")
