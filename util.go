@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 func toHexStr(s string) (h string) {
@@ -26,7 +27,7 @@ func toCharStr(s string) (c string) {
 		case ' ':
 			c += "."
 		case '\t':
-			c += "...."
+			c += "→→→→"
 		case '\n':
 			c += "."
 		default:
@@ -36,7 +37,7 @@ func toCharStr(s string) (c string) {
 	return
 }
 
-func HexDump(s string) (r string) {
+func HexDump(s string) (int, func(max int) string) {
 	lines := strings.Split(s, "\n")
 	max := 0
 
@@ -47,19 +48,33 @@ func HexDump(s string) (r string) {
 		line += "\n"
 		converted[i] = toCharStr(line)
 		hexed[i] = toHexStr(line)
-		if n := len(converted[i]); n > max {
+		if n := utf8.RuneCountInString(converted[i]); n > max {
 			max = n
 		}
 	}
 
-	for i := 0; i < len(lines); i++ {
-		r += fmt.Sprintf("%2d | %-*s | %s\n", i+1, max, converted[i], hexed[i])
+	return max, func(m int) string {
+		r := ""
+		for i := 0; i < len(lines); i++ {
+			r += fmt.Sprintf("%2d | %-*s | %s\n", i+1, m, converted[i], hexed[i])
+		}
+		return r
 	}
-
-	return r
 }
 
 func dumpFail(markdown string, want string, given string) {
+	nm, sm := HexDump(markdown)
+	nw, sw := HexDump(want)
+	ng, sg := HexDump(given)
+
+	max := nm
+	if nw > max {
+		max = nw
+	}
+	if ng > max {
+		max = ng
+	}
+
 	fmt.Printf(`----------Markdown----------
 
 %s
@@ -69,5 +84,5 @@ func dumpFail(markdown string, want string, given string) {
 ------------Given-----------
 
 %s
-`, markdown, HexDump(want), HexDump(given))
+`, sm(max), sw(max), sg(max))
 }
