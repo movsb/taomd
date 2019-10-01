@@ -4,11 +4,6 @@ import (
 	"strings"
 )
 
-type Document struct {
-	example int
-	blocks  []interface{}
-}
-
 type BlankLine struct {
 }
 
@@ -17,13 +12,25 @@ type BlankLine struct {
 type HorizontalRule struct {
 }
 
+func (hr *HorizontalRule) AddLine(s []rune) bool {
+	return false
+}
+
 type Paragraph struct {
 	texts []string
 	Text  string
 }
 
+func (p *Paragraph) AddLine(s []rune) bool {
+	if _, ok := in(s, '=', '-'); ok {
+		return false
+	}
+	p.texts = append(p.texts, string(s))
+	return true
+}
+
 func (p *Paragraph) ParseInlines() {
-	c := []rune(strings.Join(p.texts, "\n"))
+	c := []rune(strings.Join(p.texts, ""))
 	s := []rune{}
 	i := 0
 	for i < len(c) {
@@ -60,7 +67,7 @@ func (p *Paragraph) ParseInlines() {
 			i++
 		}
 	}
-	p.Text = string(s)
+	p.Text = strings.TrimSpace(string(s))
 }
 
 type Line struct {
@@ -72,31 +79,53 @@ type Heading struct {
 	text  string
 }
 
-type CodeBlock struct {
-	Lang   string
-	chunks []*_CodeChunk
+func (h *Heading) AddLine(s []rune) bool {
+	return false
 }
 
-func (s *CodeBlock) String() string {
-	i := 0
+type CodeBlock struct {
+	Lang        string
+	lines       []string
+	start       rune
+	indent      int
+	fenceLength int
+	Info        string
+	closed      bool
+}
 
-	for i < len(s.chunks) && s.chunks[i].text == "" {
-		i++
+func (cb *CodeBlock) AddLine(s []rune) bool {
+	if cb.closed {
+		return false
 	}
-	s.chunks = s.chunks[i:]
 
-	i = len(s.chunks) - 1
-	for i > 0 && s.chunks[i].text == "" {
-		i--
+	// If the leading code fence is indented N spaces,
+	// then up to N spaces of indentation are removed
+	n := 0
+	for n < cb.indent && n < len(s) && s[n] == ' ' {
+		n++
 	}
-	s.chunks = s.chunks[:i+1]
+	s = s[n:]
 
-	t := ""
-
-	for _, c := range s.chunks {
-		t += c.text + "\n"
+	// until a closing code fence of the same type as the code block
+	// began with (backticks or tildes), and with at least as many backticks
+	// or tildes as the opening code fence.
+	if len(s) > 0 && s[0] == cb.start {
+		n := 0
+		for n < len(s) && s[n] == cb.start {
+			n++
+		}
+		if (n == len(s) || s[n] == '\n') && n >= cb.fenceLength {
+			cb.closed = true
+			return true
+		}
 	}
-	return t
+
+	cb.lines = append(cb.lines, string(s))
+	return true
+}
+
+func (cb *CodeBlock) String() string {
+	return strings.Join(cb.lines, "")
 }
 
 type _CodeChunk struct {

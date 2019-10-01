@@ -27,7 +27,7 @@ func toCharStr(s string) (c string) {
 		case ' ':
 			c += "."
 		case '\t':
-			c += "→→→→"
+			c += "---→"
 		case '\n':
 			c += "."
 		default:

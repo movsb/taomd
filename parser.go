@@ -1,8 +1,117 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"strings"
 )
+
+func addLine(pBlocks *[]Blocker, s []rune) bool {
+	if len(s) == 0 {
+		return false
+	}
+
+	blocks := *pBlocks
+
+	defer func() {
+		*pBlocks = blocks
+	}()
+
+	if len(blocks) > 0 && blocks[len(blocks)-1].AddLine(s) {
+		return true
+	}
+
+	_, n := peekSpaces(s, 4)
+	if n >= 0 && n < 4 {
+		s = s[n:]
+		if len(s) == 0 {
+			return false
+		}
+
+		if r, ok := in(s, '-', '_', '*'); ok {
+			rs, hr := tryParseHorizontalRule(s, r)
+			if hr != nil {
+				_ = rs
+				if n := len(blocks); n > 0 && r == '-' {
+					if p, ok := blocks[n-1].(*Paragraph); ok {
+						heading := &Heading{
+							Level: 2,
+							text:  strings.Join(p.texts, ""),
+						}
+						blocks[n-1] = heading
+						return true
+					}
+				}
+				blocks = append(blocks, hr)
+				return true
+			}
+		}
+
+		if _, ok := in(s, '#'); ok {
+			rs, heading := tryParseAtxHeading(s)
+			if heading != nil {
+				_ = rs
+				blocks = append(blocks, heading)
+				return true
+			}
+		}
+
+		if r, ok := in(s, '=', '-'); ok {
+			_ = r
+			rs, heading := tryParseSetextHeading(s)
+			if heading != nil {
+				_ = rs
+				if n := len(blocks); n > 0 {
+					if p, ok := blocks[n-1].(*Paragraph); ok {
+						heading.text = strings.Join(p.texts, "")
+						blocks[n-1] = heading
+						return true
+					}
+				}
+			}
+		}
+
+		if r, ok := in(s, '`', '~'); ok {
+			cb := tryParseFencedCodeBlockStart(s, r, n)
+			if cb != nil {
+				blocks = append(blocks, cb)
+				return true
+			}
+		}
+
+		if _, ok := in(s, '>'); ok {
+			bq, _ := tryParseBlockQuote(s, nil)
+			if bq != nil {
+				blocks = append(blocks, bq)
+				return true
+			}
+		}
+
+		if marker, ok := in(s, '-', '+', '*'); ok {
+			_ = marker
+		}
+
+		p := &Paragraph{}
+		p.texts = append(p.texts, string(s))
+		blocks = append(blocks, p)
+		return true
+	} else if n == 4 {
+		var cb *CodeBlock
+		if len(blocks) > 0 {
+			if pcb, ok := blocks[len(blocks)-1].(*CodeBlock); ok {
+				cb = pcb
+			}
+		}
+		if cb == nil {
+			cb = &CodeBlock{}
+			blocks = append(blocks, cb)
+		}
+		s = s[4:]
+		return cb.AddLine(s)
+	}
+	//}
+	return false
+}
 
 type Parser struct {
 }
@@ -116,85 +225,70 @@ func parse(in string, example int) *Document {
 	var doc Document
 	doc.example = example
 
-	c := []rune(in)
-
-	var i int
-
-	var lastBlock interface{}
-	var thisBlock interface{}
-
-	for len(c) > 0 {
-		c, thisBlock = parseBlock(c[i:])
-		if _, ok := thisBlock.(*BlankLine); ok {
-			switch lastBlock.(type) {
-			default:
-				lastBlock = nil
-				continue
-			case *CodeBlock:
-				break
-			}
+	scn := bufio.NewScanner(strings.NewReader(in))
+	scn.Split(func(data []byte, atEOF bool) (advance int, token []byte, err error) {
+		if atEOF && len(data) == 0 {
+			return 0, nil, nil
 		}
-		block, merged := tryMerge(lastBlock, thisBlock)
-		if merged {
-			if lastBlock == nil {
-				doc.blocks = append(doc.blocks, block)
-			}
-		} else {
-			doc.blocks = append(doc.blocks, block)
+		if i := bytes.IndexByte(data, '\n'); i >= 0 {
+			// We have a full newline-terminated line.
+			return i + 1, data[0 : i+1], nil // \n is returned
 		}
-		lastBlock = block
-	}
+		// If we're at EOF, we have a final, non-terminated line. Return it.
+		if atEOF {
+			return len(data), data, nil
+		}
+		// Request more data.
+		return 0, nil, nil
+	})
 
-	for _, block := range doc.blocks {
-		if parser, ok := block.(interface {
-			ParseInlines()
-		}); ok {
-			parser.ParseInlines()
-		}
+	//var i int
+
+	//var lastBlock interface{}
+	//var thisBlock interface{}
+
+	for scn.Scan() {
+		s := scn.Text()
+		doc.AddLine([]rune(s))
 	}
 
 	return &doc
-}
 
-func tryMerge(b1 interface{}, b2 interface{}) (interface{}, bool) {
-	switch t1 := b1.(type) {
-	case *Paragraph:
-		switch t2 := b2.(type) {
-		case *Line:
-			t1.texts = append(t1.texts, t2.text)
-			return t1, true
-		// An indented code block cannot interrupt a paragraph
-		case *_CodeChunk:
-			t1.texts = append(t1.texts, t2.text)
-			return t1, true
+	/*
+		c := []rune{}
+
+		for len(c) > 0 {
+			c, thisBlock = parseBlock(c[i:])
+			if _, ok := thisBlock.(*BlankLine); ok {
+				switch lastBlock.(type) {
+				default:
+					lastBlock = nil
+					continue
+				case *CodeBlock:
+					break
+				}
+			}
+			block, merged := tryMerge(lastBlock, thisBlock)
+			if merged {
+				if lastBlock == nil {
+					doc.blocks = append(doc.blocks, block)
+				}
+			} else {
+				doc.blocks = append(doc.blocks, block)
+			}
+			lastBlock = block
 		}
-	case *CodeBlock:
-		switch t2 := b2.(type) {
-		case *_CodeChunk:
-			t1.chunks = append(t1.chunks, t2)
-			return t1, true
-		case *BlankLine:
-			t1.chunks = append(t1.chunks, &_CodeChunk{
-				text: "",
-			})
-			return t1, true
+
+		for _, block := range doc.blocks {
+			if parser, ok := block.(interface {
+				ParseInlines()
+			}); ok {
+				parser.ParseInlines()
+			}
 		}
-	}
 
-	switch t2 := b2.(type) {
-	case *Line:
-		return &Paragraph{
-			texts: []string{
-				t2.text,
-			},
-		}, false
-	case *_CodeChunk:
-		return &CodeBlock{
-			chunks: []*_CodeChunk{t2},
-		}, false
-	}
-
-	return b2, false
+		return &doc
+	*/
 }
 
 func parseBlock(c []rune) ([]rune, interface{}) {
@@ -202,7 +296,6 @@ func parseBlock(c []rune) ([]rune, interface{}) {
 
 	_, n := peekSpaces(c, 4)
 	if n >= 0 && n <= 3 {
-		oc := c
 		c = c[n:]
 		if _, ok := in(c, ' ', '\n'); ok {
 			if nc, bl := tryParseBlankLine(c); bl != nil {
@@ -217,11 +310,6 @@ func parseBlock(c []rune) ([]rune, interface{}) {
 		if _, ok := in(c, '#'); ok {
 			if nc, heading := tryParseAtxHeading(c); heading != nil {
 				return nc, heading
-			}
-		}
-		if _, ok := in(c, '`', '~'); ok {
-			if nc, code := tryParseFencedCodeBlock(oc, n); code != nil {
-				return nc, code
 			}
 		}
 		return parseLine(c)
@@ -386,27 +474,26 @@ func tryParseAtxHeading(c []rune) ([]rune, *Heading) {
 	}
 }
 
-func tryParseFencedCodeBlock(c []rune, indent int) ([]rune, *CodeBlock) {
-	old := c
-	leadingSpaces := 0
+func tryParseSetextHeading(c []rune) ([]rune, *Heading) {
+	return nil, &Heading{}
+}
 
-	if _, n := peekSpaces(c, indent); n > 0 {
-		c = c[n:]
-		leadingSpaces = n
-	}
+func tryParseFencedCodeBlockStart(s []rune, start rune, indent int) *CodeBlock {
+	cb := &CodeBlock{}
+	cb.indent = indent
+	cb.start = start
 
-	i, n := 0, 0
-	sign := c[0]
-
-	// at least three consecutive backtick characters (`) or tildes (~)
-	for i < len(c) && c[i] == sign {
-		n++
+	i := 0
+	for i < len(s) && s[i] == start {
 		i++
 	}
 
-	if n < 3 {
-		return old, nil
+	// at least three consecutive backtick characters (`) or tildes (~)
+	if i < 3 {
+		return nil
 	}
+
+	cb.fenceLength = i
 
 	// The line with the opening code fence may optionally
 	// contain some text following the code fence;
@@ -414,68 +501,29 @@ func tryParseFencedCodeBlock(c []rune, indent int) ([]rune, *CodeBlock) {
 	infoStart := i
 
 	j := infoStart
-	for j < len(c) && c[j] != '\n' {
+	for j < len(s) && s[j] != '\n' {
 		j++
 	}
 
 	// eof
-	if j == len(c) {
-		return c[j:], &CodeBlock{}
+	if j == len(s) {
+		return cb
 	}
 
+	// j is at '\n'
 	j++
 	infoEnd := j
 
-	infoText := strings.TrimSpace(string(c[infoStart:infoEnd]))
+	info := strings.TrimSpace(string(s[infoStart:infoEnd]))
 
 	// If the info string comes after a backtick fence, it may not contain any backtick characters.
-	if strings.IndexByte(infoText, byte(sign)) != -1 {
-		return old, nil
+	if start == '`' && strings.IndexByte(info, byte('`')) != -1 {
+		return nil
 	}
 
-	// The content of the code block consists of all subsequent lines,
-	var lines []string
-	c = c[j:]
-	for len(c) > 0 {
-		var line *Line
-		c, line = parseLine(c)
-		sn := 0
-		// If the leading code fence is indented N spaces,
-		// then up to N spaces of indentation are removed
-		s := strings.TrimLeftFunc(line.text, func(r rune) bool {
-			if sn < leadingSpaces && r == ' ' {
-				sn++
-				return true
-			}
-			return false
-		})
-		// until a closing code fence of the same type as the code block
-		// began with (backticks or tildes), and with at least as many backticks
-		// or tildes as the opening code fence.
-		sn = 0
-		trimS := strings.TrimLeftFunc(s, func(r rune) bool {
-			if sn < 3 && r == ' ' {
-				sn++
-				return true
-			}
-			return false
-		})
-		startSign := strings.Repeat(string(sign), n)
-		allSign := strings.Repeat(string(sign), len(trimS))
-		if strings.HasPrefix(trimS, startSign) && trimS == allSign {
-			break
-		}
-		lines = append(lines, s)
-	}
+	cb.Info = info
 
-	return c, &CodeBlock{
-		Lang: infoText,
-		chunks: []*_CodeChunk{
-			&_CodeChunk{
-				text: strings.Join(lines, "\n"),
-			},
-		},
-	}
+	return cb
 }
 
 func tryParseCodeSpan(c []rune) ([]rune, *CodeSpan) {
@@ -545,4 +593,23 @@ exit:
 	return c[i:], &CodeSpan{
 		text: text,
 	}
+}
+
+func tryParseBlockQuote(s []rune, bq *BlockQuote) (*BlockQuote, bool) {
+	// skip '>'
+	s = s[1:]
+
+	// skip ' '
+	if len(s) > 0 && s[0] == ' ' {
+		s = s[1:]
+	}
+
+	if bq == nil {
+		bq = &BlockQuote{}
+	}
+	return bq, addLine(&bq.blocks, s)
+}
+
+func tryParseListItem(s []rune) {
+
 }

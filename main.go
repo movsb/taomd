@@ -28,7 +28,7 @@ func main() {
 		m[fmt.Sprint(t.Example)] = t
 	}
 
-	example := ""
+	example := "15"
 
 	if example == "" {
 		for k := range loadTestResults() {
@@ -46,7 +46,8 @@ func main() {
 	}
 
 	t := m[example]
-	if h := render(parse(t.Markdown, t.Example)); h != t.HTML {
+	doc := parse(t.Markdown, t.Example)
+	if h := render(doc); h != t.HTML {
 		dumpFail(t.Markdown, t.HTML, h)
 	} else {
 		saveTestResults(example)
