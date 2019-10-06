@@ -6,6 +6,24 @@ import (
 	"strings"
 )
 
+func skipPrefixSpaces(s []rune) []rune {
+	n := 0
+	for len(s) > n && s[n] == ' ' {
+		n++
+	}
+	if n <= 3 {
+		return s[n:]
+	}
+	return s
+}
+
+func skipIf(s []rune, c rune) []rune {
+	if len(s) > 0 && s[0] == c {
+		s = s[1:]
+	}
+	return s
+}
+
 func addLine(pBlocks *[]Blocker, s []rune) bool {
 	if len(s) == 0 {
 		return false
@@ -24,14 +42,13 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 	_, n := peekSpaces(s, 4)
 	if n >= 0 && n < 4 {
 		s = s[n:]
-		if len(s) == 0 {
+		if len(s) == 0 || len(s) == 1 && s[0] == '\n' {
 			return false
 		}
 
 		if r, ok := in(s, '-', '_', '*'); ok {
-			rs, hr := tryParseHorizontalRule(s, r)
+			hr := tryParseHorizontalRule(s, r)
 			if hr != nil {
-				_ = rs
 				if n := len(blocks); n > 0 && r == '-' {
 					if p, ok := blocks[n-1].(*Paragraph); ok {
 						heading := &Heading{
@@ -48,9 +65,8 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 		}
 
 		if _, ok := in(s, '#'); ok {
-			rs, heading := tryParseAtxHeading(s)
+			heading := tryParseAtxHeading(s)
 			if heading != nil {
-				_ = rs
 				blocks = append(blocks, heading)
 				return true
 			}
@@ -80,7 +96,13 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 		}
 
 		if _, ok := in(s, '>'); ok {
-			bq, _ := tryParseBlockQuote(s, nil)
+			var bq *BlockQuote
+			if len(blocks) > 0 {
+				if pbq, ok := blocks[len(blocks)-1].(*BlockQuote); ok {
+					bq = pbq
+				}
+			}
+			bq, _ = tryParseBlockQuote(s, bq)
 			if bq != nil {
 				blocks = append(blocks, bq)
 				return true
@@ -109,7 +131,7 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 		s = s[4:]
 		return cb.AddLine(s)
 	}
-	//}
+
 	return false
 }
 
@@ -291,35 +313,6 @@ func parse(in string, example int) *Document {
 	*/
 }
 
-func parseBlock(c []rune) ([]rune, interface{}) {
-	// var content string
-
-	_, n := peekSpaces(c, 4)
-	if n >= 0 && n <= 3 {
-		c = c[n:]
-		if _, ok := in(c, ' ', '\n'); ok {
-			if nc, bl := tryParseBlankLine(c); bl != nil {
-				return nc, bl
-			}
-		}
-		if r, ok := in(c, '*', '-', '_'); ok {
-			if nc, hr := tryParseHorizontalRule(c, r); hr != nil {
-				return nc, hr
-			}
-		}
-		if _, ok := in(c, '#'); ok {
-			if nc, heading := tryParseAtxHeading(c); heading != nil {
-				return nc, heading
-			}
-		}
-		return parseLine(c)
-	} else if n == 4 {
-		return parseIndentedCodeChunk(c)
-	}
-
-	return c, nil
-}
-
 func parseIndentedCodeChunk(c []rune) ([]rune, *_CodeChunk) {
 	c, line := parseLine(c[4:])
 	return c, &_CodeChunk{
@@ -342,7 +335,7 @@ func tryParseBlankLine(c []rune) ([]rune, *BlankLine) {
 	return c, nil
 }
 
-func tryParseHorizontalRule(c []rune, start rune) ([]rune, *HorizontalRule) {
+func tryParseHorizontalRule(c []rune, start rune) *HorizontalRule {
 	i := 0
 	loop := true
 	n := 0
@@ -360,14 +353,14 @@ func tryParseHorizontalRule(c []rune, start rune) ([]rune, *HorizontalRule) {
 	}
 
 	if n < 3 {
-		return c, nil
+		return nil
 	}
 
-	if nc, ok := skipEnding(c[i:]); ok {
-		return nc, &HorizontalRule{}
+	if _, ok := skipEnding(c[i:]); ok {
+		return &HorizontalRule{}
 	}
 
-	return c, nil
+	return nil
 }
 
 func parseLine(c []rune) ([]rune, *Line) {
@@ -388,7 +381,7 @@ func parseLine(c []rune) ([]rune, *Line) {
 	return c[i:], &Line{string(c[:end])}
 }
 
-func tryParseAtxHeading(c []rune) ([]rune, *Heading) {
+func tryParseAtxHeading(c []rune) *Heading {
 	i, n := 0, 0
 	for i < len(c) && c[i] == '#' {
 		n++
@@ -397,23 +390,22 @@ func tryParseAtxHeading(c []rune) ([]rune, *Heading) {
 
 	// 1–6 unescaped # characters
 	if n <= 0 || n >= 7 {
-		return c, nil
+		return nil
 	}
 
 	// eof
 	if i >= len(c) {
-		return c[i:], &Heading{Level: n}
+		return &Heading{Level: n}
 	}
 
 	// end of line
 	if c[i] == '\n' {
-		i++
-		return c[i:], &Heading{Level: n}
+		return &Heading{Level: n}
 	}
 
 	// not followed by a space
 	if c[i] != ' ' {
-		return c, nil
+		return nil
 	}
 
 	i++
@@ -468,7 +460,7 @@ func tryParseAtxHeading(c []rune) ([]rune, *Heading) {
 	text := string(c[start:end])
 	text = strings.TrimSpace(text)
 
-	return c[cEnd:], &Heading{
+	return &Heading{
 		Level: n,
 		text:  text,
 	}
@@ -596,13 +588,17 @@ exit:
 }
 
 func tryParseBlockQuote(s []rune, bq *BlockQuote) (*BlockQuote, bool) {
+	s = skipPrefixSpaces(s)
+
+	if len(s) == 0 || s[0] != '>' {
+		return bq, false
+	}
+
 	// skip '>'
 	s = s[1:]
 
 	// skip ' '
-	if len(s) > 0 && s[0] == ' ' {
-		s = s[1:]
-	}
+	s = skipIf(s, ' ')
 
 	if bq == nil {
 		bq = &BlockQuote{}
