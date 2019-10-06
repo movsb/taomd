@@ -22,6 +22,14 @@ func (bq *BlockQuote) AddLine(s []rune) bool {
 	return ok
 }
 
+func (bq *BlockQuote) parseInlines() {
+	for _, block := range bq.blocks {
+		if inliner, ok := block.(_Inliner); ok {
+			inliner.parseInlines()
+		}
+	}
+}
+
 type List struct {
 	Ordered bool
 	Tight   bool
@@ -40,10 +48,6 @@ type List struct {
 func (l *List) AddLine(s []rune) bool {
 	if len(l.Items) == 0 {
 		panic("list items == 0")
-	}
-	if len(s) == 1 && s[0] == '\n' {
-		l.Items = append(l.Items, &BlankLine{})
-		return true
 	}
 	return l.Items[len(l.Items)-1].AddLine(s)
 }
@@ -77,7 +81,7 @@ func (l *List) deduceIsTight() {
 			var ibl *BlankLine
 			for _, block := range pItem.blocks {
 				switch t := block.(type) {
-				case *ListItem:
+				default:
 					if ibl != nil {
 						l.Tight = false
 						return
@@ -94,16 +98,36 @@ func (l *List) deduceIsTight() {
 	l.Tight = true
 }
 
+func (l *List) parseInlines() {
+	for _, item := range l.Items {
+		if inliner, ok := item.(_Inliner); ok {
+			inliner.parseInlines()
+		}
+	}
+}
+
 type ListItem struct {
 	spaces int
 	blocks []Blocker
 }
 
 func (li *ListItem) AddLine(s []rune) bool {
+	if len(s) == 1 && s[0] == '\n' {
+		li.blocks = append(li.blocks, &BlankLine{})
+		return true
+	}
 	_, nSkipped := peekSpaces(s, li.spaces)
 	if nSkipped != li.spaces {
 		return false
 	}
 	s = s[nSkipped:]
 	return addLine(&li.blocks, s)
+}
+
+func (li *ListItem) parseInlines() {
+	for _, block := range li.blocks {
+		if inliner, ok := block.(_Inliner); ok {
+			inliner.parseInlines()
+		}
+	}
 }

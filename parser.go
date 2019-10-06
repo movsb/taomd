@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"io"
 	"strings"
 )
 
@@ -265,11 +266,11 @@ func in(c []rune, rs ...rune) (rune, bool) {
 	return 0, false
 }
 
-func parse(in string, example int) *Document {
+func parse(in io.Reader, example int) *Document {
 	var doc Document
 	doc.example = example
 
-	scn := bufio.NewScanner(strings.NewReader(in))
+	scn := bufio.NewScanner(in)
 	scn.Split(func(data []byte, atEOF bool) (advance int, token []byte, err error) {
 		if atEOF && len(data) == 0 {
 			return 0, nil, nil
@@ -296,65 +297,15 @@ func parse(in string, example int) *Document {
 		doc.AddLine([]rune(s))
 	}
 
+	for _, block := range doc.blocks {
+		if parser, ok := block.(interface {
+			ParseInlines()
+		}); ok {
+			parser.ParseInlines()
+		}
+	}
+
 	return &doc
-
-	/*
-		c := []rune{}
-
-		for len(c) > 0 {
-			c, thisBlock = parseBlock(c[i:])
-			if _, ok := thisBlock.(*BlankLine); ok {
-				switch lastBlock.(type) {
-				default:
-					lastBlock = nil
-					continue
-				case *CodeBlock:
-					break
-				}
-			}
-			block, merged := tryMerge(lastBlock, thisBlock)
-			if merged {
-				if lastBlock == nil {
-					doc.blocks = append(doc.blocks, block)
-				}
-			} else {
-				doc.blocks = append(doc.blocks, block)
-			}
-			lastBlock = block
-		}
-
-		for _, block := range doc.blocks {
-			if parser, ok := block.(interface {
-				ParseInlines()
-			}); ok {
-				parser.ParseInlines()
-			}
-		}
-
-		return &doc
-	*/
-}
-
-func parseIndentedCodeChunk(c []rune) ([]rune, *_CodeChunk) {
-	c, line := parseLine(c[4:])
-	return c, &_CodeChunk{
-		text: line.text,
-	}
-}
-
-func tryParseBlankLine(c []rune) ([]rune, *BlankLine) {
-	i := 0
-	for i < len(c) && (c[i] == ' ' || c[i] == '\t') {
-		i++
-	}
-	if i == len(c) {
-		return c[i:], &BlankLine{}
-	}
-	if c[i] == '\n' {
-		i++
-		return c[i:], &BlankLine{}
-	}
-	return c, nil
 }
 
 func tryParseHorizontalRule(c []rune, start rune) *HorizontalRule {
@@ -383,24 +334,6 @@ func tryParseHorizontalRule(c []rune, start rune) *HorizontalRule {
 	}
 
 	return nil
-}
-
-func parseLine(c []rune) ([]rune, *Line) {
-	i, n := 0, len(c)
-
-	// skip to line ending or eof
-	for i < n && c[i] != '\n' {
-		i++
-	}
-
-	end := i
-
-	// \n
-	if i < n {
-		i++
-	}
-
-	return c[i:], &Line{string(c[:end])}
 }
 
 func tryParseAtxHeading(c []rune) *Heading {

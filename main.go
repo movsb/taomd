@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 )
 
 type Test struct {
@@ -28,13 +29,13 @@ func main() {
 		m[fmt.Sprint(t.Example)] = t
 	}
 
-	example := "225"
+	example := ""
 
 	if example == "" {
 		for k := range loadTestResults() {
 			t := m[k]
 			// fmt.Println("retest:", t.Example)
-			if h := render(parse(t.Markdown, t.Example)); h != t.HTML {
+			if h := render(parse(strings.NewReader(t.Markdown), t.Example)); h != t.HTML {
 				fmt.Printf("break: %d\n", t.Example)
 				dumpFail(t.Markdown, t.HTML, h)
 			}
@@ -42,11 +43,18 @@ func main() {
 	}
 
 	if example == "" {
-		example = os.Args[1]
+		if len(os.Args) > 1 {
+			example = os.Args[1]
+		} else {
+			doc := parse(os.Stdin, -1)
+			h := render(doc)
+			fmt.Print(h)
+			return
+		}
 	}
 
 	t := m[example]
-	doc := parse(t.Markdown, t.Example)
+	doc := parse(strings.NewReader(t.Markdown), t.Example)
 	if h := render(doc); h != t.HTML {
 		dumpFail(t.Markdown, t.HTML, h)
 	} else {
