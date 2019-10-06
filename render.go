@@ -24,7 +24,13 @@ func toHTML(block Blocker) string {
 		panic("unhandled block: " + reflect.TypeOf(typed).String())
 	case *Paragraph:
 		typed.ParseInlines()
-		s += fmt.Sprintf("<p>%s</p>\n", typed.Text)
+		if typed.Tight {
+			s += fmt.Sprintf("%s", typed.Text)
+		} else {
+			s += fmt.Sprintf("<p>%s</p>\n", typed.Text)
+		}
+	case *BlankLine:
+		break
 	case *HorizontalRule:
 		_ = typed
 		s += "<hr />\n"
@@ -50,6 +56,37 @@ func toHTML(block Blocker) string {
 			s += toHTML(b)
 		}
 		s += "</blockquote>\n"
+	case *List:
+		typed.deduceIsTight()
+		if typed.Ordered {
+			s += "<ol>\n"
+		} else {
+			s += "<ul>\n"
+		}
+
+		for _, item := range typed.Items {
+			if _, ok := item.(*BlankLine); ok {
+				continue
+			}
+			if typed.Tight {
+				s += "<li>"
+			} else {
+				s += "<li>\n"
+			}
+			for _, block := range item.(*ListItem).blocks {
+				if p, ok := block.(*Paragraph); ok {
+					p.Tight = typed.Tight
+				}
+				s += toHTML(block)
+			}
+			s += "</li>\n"
+		}
+
+		if typed.Ordered {
+			s += "</ol>\n"
+		} else {
+			s += "</ul>\n"
+		}
 	}
 	return s
 }

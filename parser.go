@@ -6,12 +6,23 @@ import (
 	"strings"
 )
 
-func skipPrefixSpaces(s []rune) []rune {
+func isText(s []rune) bool {
+	var blocks []Blocker
+	addLine(&blocks, s)
+	if len(blocks) > 0 {
+		if _, ok := blocks[0].(*Paragraph); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func skipPrefixSpaces(s []rune, max int) []rune {
 	n := 0
 	for len(s) > n && s[n] == ' ' {
 		n++
 	}
-	if n <= 3 {
+	if n <= max {
 		return s[n:]
 	}
 	return s
@@ -42,8 +53,13 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 	_, n := peekSpaces(s, 4)
 	if n >= 0 && n < 4 {
 		s = s[n:]
-		if len(s) == 0 || len(s) == 1 && s[0] == '\n' {
+		if len(s) == 0 {
 			return false
+		}
+
+		if len(s) == 1 && s[0] == '\n' {
+			blocks = append(blocks, &BlankLine{})
+			return true
 		}
 
 		if r, ok := in(s, '-', '_', '*'); ok {
@@ -109,8 +125,14 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 			}
 		}
 
-		if marker, ok := in(s, '-', '+', '*'); ok {
-			_ = marker
+		_, maybeListMarker := in(s, '-', '+', '*')
+		maybeListStart := '0' <= s[0] && s[0] <= '9'
+		if maybeListMarker || maybeListStart {
+			if list, item, ok := tryParseListItem(s); ok {
+				list.Items = append(list.Items, item)
+				blocks = append(blocks, list)
+				return true
+			}
 		}
 
 		p := &Paragraph{}
@@ -588,7 +610,7 @@ exit:
 }
 
 func tryParseBlockQuote(s []rune, bq *BlockQuote) (*BlockQuote, bool) {
-	s = skipPrefixSpaces(s)
+	s = skipPrefixSpaces(s, 3)
 
 	if len(s) == 0 || s[0] != '>' {
 		return bq, false
@@ -606,6 +628,54 @@ func tryParseBlockQuote(s []rune, bq *BlockQuote) (*BlockQuote, bool) {
 	return bq, addLine(&bq.blocks, s)
 }
 
-func tryParseListItem(s []rune) {
+func tryParseListItem(s []rune) (*List, *ListItem, bool) {
+	list := &List{}
 
+	if marker, ok := in(s, '-', '+', '*'); ok {
+		list.Ordered = false
+		list.Marker = byte(marker)
+		list.markerWidth = 1
+		s = s[1:]
+	} else {
+		list.Ordered = true
+		start := 0
+		i := 0
+		for i < len(s) && '0' <= s[i] && s[i] <= '9' {
+			start *= 10
+			start += int(s[i]) - '0'
+			i++
+		}
+		s = s[i:]
+		if len(s) == 0 {
+			return nil, nil, false
+		}
+		switch s[0] {
+		default:
+			return nil, nil, false
+		case '.', ')':
+			list.Delimeter = byte(s[0])
+			list.Start = start
+			list.markerWidth = i + 1
+			s = s[1:]
+		}
+	}
+
+	if len(s) == 0 {
+		return nil, nil, false
+	}
+	_, n := peekSpaces(s, 4)
+	if !(1 <= n && n <= 4) {
+		return nil, nil, false
+	}
+	s = s[n:]
+	list.spacesWidth = n
+
+	item := &ListItem{}
+	item.spaces = list.markerWidth + list.spacesWidth
+
+	if !addLine(&item.blocks, s) {
+		return nil, nil, false
+	}
+
+	return list, item, true
 }

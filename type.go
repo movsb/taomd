@@ -7,6 +7,10 @@ import (
 type BlankLine struct {
 }
 
+func (bl *BlankLine) AddLine(s []rune) bool {
+	return false
+}
+
 // HorizontalRule is a horizontal rule (thematic breaks).
 // https://spec.commonmark.org/0.29/#thematic-breaks
 type HorizontalRule struct {
@@ -19,9 +23,13 @@ func (hr *HorizontalRule) AddLine(s []rune) bool {
 type Paragraph struct {
 	texts []string
 	Text  string
+	Tight bool
 }
 
 func (p *Paragraph) AddLine(s []rune) bool {
+	if len(s) == 0 || len(s) == 1 && s[0] == '\n' {
+		return false
+	}
 	if _, ok := in(s, '=', '-'); ok {
 		return false
 	}
@@ -95,6 +103,10 @@ type CodeBlock struct {
 
 func (cb *CodeBlock) AddLine(s []rune) bool {
 	if cb.closed {
+		return false
+	}
+
+	if !isText(s) {
 		return false
 	}
 
