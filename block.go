@@ -13,6 +13,14 @@ func (doc *Document) AddLine(s []rune) {
 	addLine(&doc.blocks, s)
 }
 
+func (doc *Document) parseInlines() {
+	for _, block := range doc.blocks {
+		if inliner, ok := block.(_Inliner); ok {
+			inliner.parseInlines()
+		}
+	}
+}
+
 type BlockQuote struct {
 	blocks []Blocker
 }

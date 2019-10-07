@@ -23,11 +23,32 @@ func toHTML(block Blocker) string {
 	default:
 		panic("unhandled block: " + reflect.TypeOf(typed).String())
 	case *Paragraph:
-		typed.ParseInlines()
-		if typed.Tight {
-			s += fmt.Sprintf("%s", typed.Text)
-		} else {
-			s += fmt.Sprintf("<p>%s</p>\n", typed.Text)
+		if !typed.Tight {
+			s += "<p>"
+		}
+		for _, inline := range typed.Inlines {
+			switch it := inline.(type) {
+			default:
+				panic("unhandled inline: " + reflect.TypeOf(it).String())
+			case *Text:
+				s += it.Text
+			case *Link:
+				s += fmt.Sprintf(`<a href="%s"`, it.Link)
+				if it.Title != "" {
+					s += fmt.Sprintf(` title="%s"`, it.Title)
+				}
+				s += ">"
+				for _, inline := range it.Inlines {
+					s += inline.Text
+				}
+				s += "</a>"
+			case *Image:
+				panic("no image")
+			}
+		}
+
+		if !typed.Tight {
+			s += "</p>\n"
 		}
 	case *BlankLine:
 		break

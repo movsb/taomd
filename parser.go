@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"container/list"
 	"io"
 	"strings"
 )
@@ -23,7 +24,7 @@ func skipPrefixSpaces(s []rune, max int) []rune {
 	for len(s) > n && s[n] == ' ' {
 		n++
 	}
-	if n <= max {
+	if max == -1 || n <= max {
 		return s[n:]
 	}
 	return s
@@ -297,13 +298,7 @@ func parse(in io.Reader, example int) *Document {
 		doc.AddLine([]rune(s))
 	}
 
-	for _, block := range doc.blocks {
-		if parser, ok := block.(interface {
-			ParseInlines()
-		}); ok {
-			parser.ParseInlines()
-		}
-	}
+	doc.parseInlines()
 
 	return &doc
 }
@@ -611,4 +606,255 @@ func tryParseListItem(s []rune) (*List, *ListItem, bool) {
 	}
 
 	return list, item, true
+}
+
+func parseInlines(raw string) []Inline {
+	c := []rune(raw)
+	texts := list.New()
+	text := []rune{}
+	delimiters := list.New()
+
+	appendDelimiter := func(s string) {
+		if len(text) > 0 {
+			texts.PushFront(&Text{
+				Text: string(text),
+			})
+			text = text[:0]
+		}
+		if s != "" {
+			t := &Text{
+				Text: s,
+			}
+			te := texts.PushFront(t)
+			d := &Delimiter{
+				textElement: te,
+				active:      true,
+				text:        s,
+			}
+			delimiters.PushFront(d)
+		}
+	}
+
+	i := 0
+	for i < len(c) {
+		switch ch := c[i]; ch {
+		case '*', '_':
+			start := i
+			end := i
+			for end < len(c) && c[end] == ch {
+				end++
+			}
+			appendDelimiter(string(c[start:end]))
+			i = end
+		case '!':
+			i++
+			if i < len(c) && c[i] == '[' {
+				appendDelimiter("![")
+				i++
+			} else {
+				text = append(text, '!')
+				i++
+			}
+		case '[':
+			appendDelimiter("[")
+			i++
+		case ']':
+			appendDelimiter("")
+			i++
+			var opener *Delimiter
+			var openerElement *list.Element
+			for e := delimiters.Front(); e != nil; e = e.Next() {
+				d := e.Value.(*Delimiter)
+				if d.text == "[" || d.text == "![" {
+					openerElement = e
+					opener = d
+					break
+				}
+			}
+			if opener == nil {
+				appendDelimiter("")
+				texts.PushFront(&Text{
+					Text: "]",
+				})
+				continue
+			}
+			if !opener.active {
+				delimiters.Remove(openerElement)
+				appendDelimiter("")
+				texts.PushFront(&Text{
+					Text: "]",
+				})
+				continue
+			}
+
+			var link Link
+			var image Image
+			var nc []rune
+			var ok bool
+
+			if opener.text == "[" {
+				nc, ok = parseLink(c[i:], &link)
+			} else {
+				panic("parse image")
+			}
+
+			if !ok {
+				delimiters.Remove(openerElement)
+				appendDelimiter("")
+				texts.PushFront(&Text{
+					Text: "]",
+				})
+				continue
+			}
+
+			c = nc
+			i = 0
+
+			if opener.text == "[" {
+				for e := opener.textElement.Prev(); e != nil; e = e.Prev() {
+					link.Inlines = append(link.Inlines, e.Value.(*Text))
+					texts.Remove(e)
+				}
+
+			} else {
+				for e := opener.textElement.Prev(); e != nil; e = e.Prev() {
+					image.inlines = append(image.inlines, e.Value.(*Text))
+					texts.Remove(e)
+				}
+			}
+
+			texts.Remove(opener.textElement)
+
+			// TODO process inlines for [ ]
+
+			if opener.text == "[" {
+				for e := openerElement.Next(); e != nil; e = e.Next() {
+					d := e.Value.(*Delimiter)
+					if d.text == "[" {
+						d.active = false
+					}
+				}
+			}
+
+			delimiters.Remove(openerElement)
+
+			if opener.text == "[" {
+				texts.PushFront(&link)
+			} else {
+				texts.PushFront(&image)
+			}
+
+		default:
+			text = append(text, ch)
+			i++
+		}
+	}
+
+	appendDelimiter("")
+
+	var inlines []Inline
+	for e := texts.Back(); e != nil; e = e.Prev() {
+		inlines = append(inlines, e.Value)
+	}
+
+	return inlines
+}
+
+func textOnlyFromInlines(inlines []*Text) string {
+	s := ""
+	for _, inline := range inlines {
+		s += inline.Text
+	}
+	return s
+}
+
+func parseLink(c []rune, link *Link) ([]rune, bool) {
+	if len(c) == 0 || c[0] != '(' {
+		return c, false
+	}
+	c = c[1:]
+	i := 0
+	c = skipPrefixSpaces(c, -1)
+	if len(c) == 0 {
+		return nil, false
+	}
+	angle := c[0] == '<'
+	if angle {
+		c = c[1:]
+		dest := []rune{}
+		i := 0
+		for i < len(c) {
+			switch c[i] {
+			case '>':
+				i++
+				break
+			case '\n':
+				break
+			default:
+				dest = append(dest, c[i])
+				i++
+			}
+		}
+		if i == len(c) || c[i] != '>' {
+			return nil, false
+		}
+		link.Link = string(dest)
+		i++ // skip '>'
+		c = c[i:]
+	} else {
+		dest := []rune{}
+		i := 0
+		for i < len(c) {
+			if c[i] <= ' ' {
+				break
+			}
+			switch c[i] {
+			default:
+				dest = append(dest, c[i])
+				i++
+			}
+		}
+		link.Link = string(dest)
+		c = c[i:]
+	}
+
+	c = skipPrefixSpaces(c, -1)
+
+	if len(c) == 0 {
+		return nil, false
+	}
+
+	if c[0] == ')' {
+		return c[1:], true
+	}
+
+	// parse title
+	marker, ok := in(c, '\'', '"', '(')
+	if !ok {
+		return nil, false
+	}
+
+	start := 1
+	i = 1
+	for i < len(c) && c[i] != marker {
+		i++
+	}
+
+	if i == len(c) {
+		return nil, false
+	}
+
+	link.Title = string(c[start:i])
+
+	i++ // skip marker
+
+	c = c[i:]
+	i = 0
+	c = skipPrefixSpaces(c, -1)
+	if len(c) == 0 || c[0] != ')' {
+		return nil, false
+	}
+
+	i++
+	return c[i:], true
 }

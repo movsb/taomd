@@ -29,7 +29,7 @@ func main() {
 		m[fmt.Sprint(t.Example)] = t
 	}
 
-	example := ""
+	example := "481"
 
 	if example == "" {
 		for k := range loadTestResults() {

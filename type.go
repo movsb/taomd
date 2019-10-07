@@ -21,9 +21,9 @@ func (hr *HorizontalRule) AddLine(s []rune) bool {
 }
 
 type Paragraph struct {
-	texts []string
-	Text  string
-	Tight bool
+	texts   []string
+	Tight   bool
+	Inlines []Inline
 }
 
 func (p *Paragraph) AddLine(s []rune) bool {
@@ -37,45 +37,10 @@ func (p *Paragraph) AddLine(s []rune) bool {
 	return true
 }
 
-func (p *Paragraph) ParseInlines() {
-	c := []rune(strings.Join(p.texts, ""))
-	s := []rune{}
-	i := 0
-	for i < len(c) {
-		switch c[i] {
-		case '\\':
-			i++
-			if i < len(c) {
-				escape := escapeHTML(c[i])
-				if isPunctuation(c[i]) {
-					s = append(s, escape...)
-				} else if c[i] == '\n' {
-					// A backslash at the end of the line is a hard line break
-					s = append(s, []rune("<br />\n")...)
-				} else {
-					s = append(s, '\\')
-					s = append(s, escape...)
-				}
-				i++
-			} else {
-				s = append(s, '\\')
-			}
-		case '`':
-			if nc, span := tryParseCodeSpan(c[i:]); span != nil {
-				i = 0
-				c = nc
-				s = append(s, []rune(span.String())...)
-				continue
-			}
-			for ; i < len(c) && c[i] == '`'; i++ {
-				s = append(s, '`')
-			}
-		default:
-			s = append(s, escapeHTML(c[i])...)
-			i++
-		}
-	}
-	p.Text = strings.TrimSpace(string(s))
+func (p *Paragraph) parseInlines() {
+	raw := strings.Join(p.texts, "")
+	raw = strings.TrimSpace(raw)
+	p.Inlines = parseInlines(raw)
 }
 
 type Line struct {
