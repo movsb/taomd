@@ -743,7 +743,15 @@ func parseInlines(raw string) []Inline {
 			} else {
 				texts.PushFront(&image)
 			}
-
+		case '\\':
+			if j := i + 1; j < len(c) && isPunctuation(c[j]) {
+				text = append(text, c[j])
+				i++
+				i++
+				continue
+			}
+			text = append(text, '\\')
+			i++
 		default:
 			text = append(text, ch)
 			i++
@@ -768,6 +776,14 @@ func textOnlyFromInlines(inlines []*Text) string {
 	return s
 }
 
+func parseEscape(c []rune) (rune, bool) {
+	i := 0
+	if j := i + 1; j < len(c) && isPunctuation(c[j]) {
+		return c[j], true
+	}
+	return 0, false
+}
+
 func parseLink(c []rune, link *Link) ([]rune, bool) {
 	if len(c) == 0 || c[0] != '(' {
 		return c, false
@@ -783,17 +799,17 @@ func parseLink(c []rune, link *Link) ([]rune, bool) {
 		c = c[1:]
 		dest := []rune{}
 		i := 0
-		for i < len(c) {
-			switch c[i] {
-			case '>':
-				i++
-				break
-			case '\n':
-				break
-			default:
-				dest = append(dest, c[i])
-				i++
+		for i < len(c) && c[i] != '>' && c[i] != '\n' {
+			if c[i] == '\\' {
+				if j := i + 1; j < len(c) && c[j] == '>' {
+					dest = append(dest, '>')
+					i++ // skip \
+					i++ // skip >
+					continue
+				}
 			}
+			dest = append(dest, c[i])
+			i++
 		}
 		if i == len(c) || c[i] != '>' {
 			return nil, false
@@ -804,13 +820,32 @@ func parseLink(c []rune, link *Link) ([]rune, bool) {
 	} else {
 		dest := []rune{}
 		i := 0
+		nParen := 0
 		for i < len(c) {
-			if c[i] <= ' ' {
+			if c[i] <= ' ' || (c[i] == ')' && nParen == 0) {
 				break
 			}
 			switch c[i] {
 			default:
 				dest = append(dest, c[i])
+				i++
+			case '(':
+				nParen++
+				dest = append(dest, '(')
+				i++
+			case ')':
+				nParen--
+				dest = append(dest, ')')
+				i++
+			case '\\':
+				// Parentheses inside the link destination may be escaped:
+				// Parentheses and other symbols can also be escaped, as usual in Markdown:
+				if r, ok := parseEscape(c[i:]); ok {
+					dest = append(dest, r)
+					i += 2
+					continue
+				}
+				dest = append(dest, '\\')
 				i++
 			}
 		}
@@ -824,6 +859,7 @@ func parseLink(c []rune, link *Link) ([]rune, bool) {
 		return nil, false
 	}
 
+	// The title may be omitted
 	if c[0] == ')' {
 		return c[1:], true
 	}
@@ -836,7 +872,7 @@ func parseLink(c []rune, link *Link) ([]rune, bool) {
 
 	start := 1
 	i = 1
-	for i < len(c) && c[i] != marker {
+	for i < len(c) && (c[i] != marker && !(marker == '(' && c[i] == ')')) {
 		i++
 	}
 

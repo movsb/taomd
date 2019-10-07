@@ -17,6 +17,14 @@ func render(doc *Document) string {
 	return s
 }
 
+func escapeAttr(s string) string {
+	s = strings.ReplaceAll(s, " ", "%20")
+	s = strings.ReplaceAll(s, "\\", "%5C")
+	s = strings.ReplaceAll(s, "\"", "%22")
+	s = strings.ReplaceAll(s, "\xc2\xa0", "%C2%A0")
+	return s
+}
+
 func toHTML(block Blocker) string {
 	s := ""
 	switch typed := block.(type) {
@@ -31,15 +39,15 @@ func toHTML(block Blocker) string {
 			default:
 				panic("unhandled inline: " + reflect.TypeOf(it).String())
 			case *Text:
-				s += it.Text
+				s += html.EscapeString(it.Text)
 			case *Link:
-				s += fmt.Sprintf(`<a href="%s"`, it.Link)
+				s += fmt.Sprintf(`<a href="%s"`, escapeAttr(it.Link))
 				if it.Title != "" {
-					s += fmt.Sprintf(` title="%s"`, it.Title)
+					s += fmt.Sprintf(` title="%s"`, escapeAttr(it.Title))
 				}
 				s += ">"
 				for _, inline := range it.Inlines {
-					s += inline.Text
+					s += html.EscapeString(inline.Text)
 				}
 				s += "</a>"
 			case *Image:
