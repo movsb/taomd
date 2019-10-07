@@ -29,4 +29,5 @@ type Image struct {
 	Link    string
 	inlines []*Text
 	Alt     string
+	Title   string
 }

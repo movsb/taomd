@@ -18,7 +18,9 @@ func render(doc *Document) string {
 }
 
 func escapeAttr(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
 	s = strings.ReplaceAll(s, " ", "%20")
+	s = strings.ReplaceAll(s, "[", "%5B")
 	s = strings.ReplaceAll(s, "\\", "%5C")
 	s = strings.ReplaceAll(s, "\"", "%22")
 	s = strings.ReplaceAll(s, "\xc2\xa0", "%C2%A0")
@@ -51,7 +53,14 @@ func toHTML(block Blocker) string {
 				}
 				s += "</a>"
 			case *Image:
-				panic("no image")
+				s += fmt.Sprintf(`<img src="%s"`, escapeAttr(it.Link))
+				if it.Alt != "" {
+					s += fmt.Sprintf(` alt="%s"`, escapeAttr(it.Alt))
+				}
+				if it.Title != "" {
+					s += fmt.Sprintf(` title="%s"`, escapeAttr(it.Title))
+				}
+				s += " />"
 			}
 		}
 

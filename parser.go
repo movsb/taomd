@@ -695,7 +695,7 @@ func parseInlines(raw string) []Inline {
 			if opener.text == "[" {
 				nc, ok = parseLink(c[i:], &link)
 			} else {
-				panic("parse image")
+				nc, ok = parseImage(c[i:], &image)
 			}
 
 			if !ok {
@@ -721,6 +721,7 @@ func parseInlines(raw string) []Inline {
 					image.inlines = append(image.inlines, e.Value.(*Text))
 					texts.Remove(e)
 				}
+				image.Alt = textOnlyFromInlines(image.inlines)
 			}
 
 			texts.Remove(opener.textElement)
@@ -751,6 +752,15 @@ func parseInlines(raw string) []Inline {
 				continue
 			}
 			text = append(text, '\\')
+			i++
+		case '<':
+			if nc, link, ok := parseAutoLink(c); ok {
+				c = nc
+				i = 0
+				texts.PushFront(link)
+				continue
+			}
+			text = append(text, '<')
 			i++
 		default:
 			text = append(text, ch)
@@ -893,4 +903,206 @@ func parseLink(c []rune, link *Link) ([]rune, bool) {
 
 	i++
 	return c[i:], true
+}
+
+func parseImage(c []rune, image *Image) ([]rune, bool) {
+	if len(c) == 0 || c[0] != '(' {
+		return c, false
+	}
+	c = c[1:]
+	i := 0
+	c = skipPrefixSpaces(c, -1)
+	if len(c) == 0 {
+		return nil, false
+	}
+	angle := c[0] == '<'
+	if angle {
+		c = c[1:]
+		dest := []rune{}
+		i := 0
+		for i < len(c) && c[i] != '>' && c[i] != '\n' {
+			if c[i] == '\\' {
+				if j := i + 1; j < len(c) && c[j] == '>' {
+					dest = append(dest, '>')
+					i++ // skip \
+					i++ // skip >
+					continue
+				}
+			}
+			dest = append(dest, c[i])
+			i++
+		}
+		if i == len(c) || c[i] != '>' {
+			return nil, false
+		}
+		image.Link = string(dest)
+		i++ // skip '>'
+		c = c[i:]
+	} else {
+		dest := []rune{}
+		i := 0
+		nParen := 0
+		for i < len(c) {
+			if c[i] <= ' ' || (c[i] == ')' && nParen == 0) {
+				break
+			}
+			switch c[i] {
+			default:
+				dest = append(dest, c[i])
+				i++
+			case '(':
+				nParen++
+				dest = append(dest, '(')
+				i++
+			case ')':
+				nParen--
+				dest = append(dest, ')')
+				i++
+			case '\\':
+				// Parentheses inside the link destination may be escaped:
+				// Parentheses and other symbols can also be escaped, as usual in Markdown:
+				if r, ok := parseEscape(c[i:]); ok {
+					dest = append(dest, r)
+					i += 2
+					continue
+				}
+				dest = append(dest, '\\')
+				i++
+			}
+		}
+		image.Link = string(dest)
+		c = c[i:]
+	}
+
+	c = skipPrefixSpaces(c, -1)
+
+	if len(c) == 0 {
+		return nil, false
+	}
+
+	// The title may be omitted
+	if c[0] == ')' {
+		return c[1:], true
+	}
+
+	// parse title
+	marker, ok := in(c, '\'', '"', '(')
+	if !ok {
+		return nil, false
+	}
+
+	start := 1
+	i = 1
+	for i < len(c) && (c[i] != marker && !(marker == '(' && c[i] == ')')) {
+		i++
+	}
+
+	if i == len(c) {
+		return nil, false
+	}
+
+	image.Title = string(c[start:i])
+
+	i++ // skip marker
+
+	c = c[i:]
+	i = 0
+	c = skipPrefixSpaces(c, -1)
+	if len(c) == 0 || c[0] != ')' {
+		return nil, false
+	}
+
+	i++
+	return c[i:], true
+}
+
+func parseAutoLink(c []rune) ([]rune, *Link, bool) {
+	if len(c) == 0 {
+		return nil, nil, false
+	}
+
+	i := 0
+	if c[i] != '<' {
+		return nil, nil, false
+	}
+
+	i++ // skip '<'
+
+	if i == len(c) {
+		return nil, nil, false
+	}
+
+	switch {
+	case 'a' <= c[i] && c[i] <= 'z':
+		break
+	case 'A' <= c[i] && c[i] <= 'Z':
+		break
+	default:
+		return nil, nil, false
+	}
+
+	isSchemeChar := func(ch rune) bool {
+		switch {
+		case 'a' <= ch && ch <= 'z':
+			return true
+		case 'A' <= ch && ch <= 'Z':
+			return true
+		case '0' <= ch && ch <= '9':
+			return true
+		default:
+			switch ch {
+			case '+', '.', '-':
+				return true
+			}
+			return false
+		}
+	}
+
+	schemeStart := i
+	for i < len(c) && isSchemeChar(c[i]) {
+		i++
+	}
+
+	// 2–32 characters
+	if n := i - schemeStart; n < 2 || n > 32 {
+		return nil, nil, false
+	}
+
+	if i == len(c) {
+		return nil, nil, false
+	}
+
+	if c[i] != ':' {
+		return nil, nil, false
+	}
+
+	i++
+
+	// parse opaque
+	for i < len(c) {
+		if c[i] <= ' ' {
+			break
+		}
+		if c[i] == '<' || c[i] == '>' {
+			break
+		}
+		i++
+	}
+	if i == len(c) {
+		return nil, nil, false
+	}
+	if c[i] != '>' {
+		return nil, nil, false
+	}
+
+	full := string(c[schemeStart:i])
+	link := &Link{
+		Link: full,
+		Inlines: []*Text{
+			&Text{
+				Text: full,
+			},
+		},
+	}
+	return c[i+1:], link, true
 }
