@@ -152,7 +152,6 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 			cb = &CodeBlock{}
 			blocks = append(blocks, cb)
 		}
-		s = s[4:]
 		return cb.AddLine(s)
 	}
 
@@ -422,8 +421,8 @@ func tryParseSetextHeading(c []rune) ([]rune, *Heading) {
 
 func tryParseFencedCodeBlockStart(s []rune, start rune, indent int) *CodeBlock {
 	cb := &CodeBlock{}
-	cb.indent = indent
-	cb.start = start
+	cb.fenceIndent = indent
+	cb.fenceStart = start
 
 	i := 0
 	for i < len(s) && s[i] == start {

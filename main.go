@@ -15,6 +15,15 @@ type Test struct {
 }
 
 func main() {
+	example := "19"
+
+	if example == "" && len(os.Args) == 1 {
+		doc := parse(os.Stdin, -1)
+		h := render(doc)
+		fmt.Print(h)
+		return
+	}
+
 	fp, err := os.Open("spec.json")
 	if err != nil {
 		panic(err)
@@ -29,9 +38,7 @@ func main() {
 		m[fmt.Sprint(t.Example)] = t
 	}
 
-	example := "599"
-
-	if example == "" {
+	if example == "" && false {
 		for k := range loadTestResults() {
 			t := m[k]
 			// fmt.Println("retest:", t.Example)
@@ -46,10 +53,6 @@ func main() {
 		if len(os.Args) > 1 {
 			example = os.Args[1]
 		} else {
-			doc := parse(os.Stdin, -1)
-			h := render(doc)
-			fmt.Print(h)
-			return
 		}
 	}
 

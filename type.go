@@ -27,14 +27,27 @@ type Paragraph struct {
 }
 
 func (p *Paragraph) AddLine(s []rune) bool {
-	if len(s) == 0 || len(s) == 1 && s[0] == '\n' {
-		return false
+	var blocks []Blocker
+	if !addLine(&blocks, s) || len(blocks) == 0 {
+		panic("won't happen")
 	}
-	if _, ok := in(s, '=', '-'); ok {
-		return false
+
+	switch typed := blocks[0].(type) {
+	case *Paragraph:
+		// A sequence of non-blank lines that cannot be interpreted as ...
+		// ... other kinds of blocks forms a paragraph.
+		p.texts = append(p.texts, typed.texts[0])
+		return true
+	case *CodeBlock:
+		// An indented code block cannot interrupt a paragraph
+		if !typed.isFenced() {
+			// s: typed.lines[0] is trimmed 4 spaces at the beginning, don't use.
+			p.texts = append(p.texts, string(s))
+			return true
+		}
 	}
-	p.texts = append(p.texts, string(s))
-	return true
+
+	return false
 }
 
 func (p *Paragraph) parseInlines() {
@@ -54,59 +67,6 @@ type Heading struct {
 
 func (h *Heading) AddLine(s []rune) bool {
 	return false
-}
-
-type CodeBlock struct {
-	Lang        string
-	lines       []string
-	start       rune
-	indent      int
-	fenceLength int
-	Info        string
-	closed      bool
-}
-
-func (cb *CodeBlock) AddLine(s []rune) bool {
-	if cb.closed {
-		return false
-	}
-
-	if !isText(s) {
-		return false
-	}
-
-	// If the leading code fence is indented N spaces,
-	// then up to N spaces of indentation are removed
-	n := 0
-	for n < cb.indent && n < len(s) && s[n] == ' ' {
-		n++
-	}
-	s = s[n:]
-
-	// until a closing code fence of the same type as the code block
-	// began with (backticks or tildes), and with at least as many backticks
-	// or tildes as the opening code fence.
-	if len(s) > 0 && s[0] == cb.start {
-		n := 0
-		for n < len(s) && s[n] == cb.start {
-			n++
-		}
-		if (n == len(s) || s[n] == '\n') && n >= cb.fenceLength {
-			cb.closed = true
-			return true
-		}
-	}
-
-	cb.lines = append(cb.lines, string(s))
-	return true
-}
-
-func (cb *CodeBlock) String() string {
-	return strings.Join(cb.lines, "")
-}
-
-type _CodeChunk struct {
-	text string
 }
 
 type CodeSpan struct {
