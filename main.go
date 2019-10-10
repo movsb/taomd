@@ -15,7 +15,7 @@ type Test struct {
 }
 
 func main() {
-	example := "19"
+	example := ""
 
 	if example == "" && len(os.Args) == 1 {
 		doc := parse(os.Stdin, -1)

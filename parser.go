@@ -130,8 +130,8 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 		_, maybeListMarker := in(s, '-', '+', '*')
 		maybeListStart := '0' <= s[0] && s[0] <= '9'
 		if maybeListMarker || maybeListStart {
-			if list, item, ok := tryParseListItem(s); ok {
-				list.Items = append(list.Items, item)
+			list := &List{}
+			if list.begin(s) {
 				blocks = append(blocks, list)
 				return true
 			}
@@ -553,58 +553,6 @@ func tryParseBlockQuote(s []rune, bq *BlockQuote) (*BlockQuote, bool) {
 		bq = &BlockQuote{}
 	}
 	return bq, addLine(&bq.blocks, s)
-}
-
-func tryParseListItem(s []rune) (*List, *ListItem, bool) {
-	list := &List{}
-
-	if marker, ok := in(s, '-', '+', '*'); ok {
-		list.Ordered = false
-		list.Marker = byte(marker)
-		list.markerWidth = 1
-		s = s[1:]
-	} else {
-		list.Ordered = true
-		start := 0
-		i := 0
-		for i < len(s) && '0' <= s[i] && s[i] <= '9' {
-			start *= 10
-			start += int(s[i]) - '0'
-			i++
-		}
-		s = s[i:]
-		if len(s) == 0 {
-			return nil, nil, false
-		}
-		switch s[0] {
-		default:
-			return nil, nil, false
-		case '.', ')':
-			list.Delimeter = byte(s[0])
-			list.Start = start
-			list.markerWidth = i + 1
-			s = s[1:]
-		}
-	}
-
-	if len(s) == 0 {
-		return nil, nil, false
-	}
-	_, n := peekSpaces(s, 4)
-	if !(1 <= n && n <= 4) {
-		return nil, nil, false
-	}
-	s = s[n:]
-	list.spacesWidth = n
-
-	item := &ListItem{}
-	item.spaces = list.markerWidth + list.spacesWidth
-
-	if !addLine(&item.blocks, s) {
-		return nil, nil, false
-	}
-
-	return list, item, true
 }
 
 func parseInlines(raw string) []Inline {

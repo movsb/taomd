@@ -40,24 +40,111 @@ func (bq *BlockQuote) parseInlines() {
 	}
 }
 
+// A List is a sequence of one or more list items of the same type.
+// The list items may be separated by any number of blank lines.
 type List struct {
+	// A list is an ordered list if its constituent list items begin with ordered list markers,
+	// and a bullet list if its constituent list items begin with bullet list markers.
 	Ordered bool
-	Tight   bool
 
-	Marker byte
+	// A list is loose if any of its constituent list items are separated by blank lines,
+	// or if any of its constituent list items directly contain two block-level elements
+	// with a blank line between them. Otherwise a list is tight.
+	//
+	// The difference in HTML output is that paragraphs in a loose list are wrapped in <p> tags,
+	// while paragraphs in a tight list are not.)
+	Tight bool
 
-	Start     int
-	Delimeter byte
+	// Two list items are of the same type if they begin with a list marker of the same type.
+	// Two list markers are of the same type if either
+	//     (a) they are bullet list markers using the same character (-, +, or *)
+	//   or
+	//     (b) they are ordered list numbers with the same delimiter (either . or )).
+	MarkerChar byte
+
+	// The start number of an ordered list is determined by the list number of its initial list item.
+	// The numbers of subsequent list items are disregarded.
+	Start int
 
 	Items []Blocker
+}
 
-	markerWidth int
-	spacesWidth int
+// begin tries to parse List start indicator.
+func (l *List) begin(s []rune) bool {
+	if len(l.Items) != 0 {
+		panic("wrong func call")
+	}
+
+	// TODO no spaces after marker
+	// -
+	// -
+	// -
+	// is treated as list.
+	_, n := peekSpaces(s, 4)
+	if !(1 <= n && n <= 4) {
+		return false
+	}
+
+	return l.AddLine(s)
+}
+
+func (l *List) parseMarker(s []rune) (remain []rune, list *List, markerWidth int, ok bool) {
+	list = &List{}
+
+	prefixWidth := 0
+
+	if marker, ook := in(s, '-', '+', '*'); ook {
+		list.Ordered = false
+		list.MarkerChar = byte(marker)
+		prefixWidth = 1
+		s = s[1:]
+	} else {
+		list.Ordered = true
+		start := 0
+		i := 0
+		for i < len(s) && '0' <= s[i] && s[i] <= '9' {
+			start *= 10
+			start += int(s[i]) - '0'
+			i++
+		}
+		s = s[i:]
+		if len(s) == 0 {
+			return
+		}
+		switch s[0] {
+		default:
+			return
+		case '.', ')':
+			list.MarkerChar = byte(s[0])
+			list.Start = start
+			prefixWidth = i + 1
+			s = s[1:]
+		}
+	}
+
+	if len(s) == 0 {
+		return
+	}
+
+	_, n := peekSpaces(s, 4)
+	if n < 1 {
+		return
+	}
+
+	s = s[n:]
+
+	return s, list, prefixWidth + n, true
 }
 
 func (l *List) AddLine(s []rune) bool {
-	if len(l.Items) == 0 {
-		panic("list items == 0")
+	if len(l.Items) > 0 {
+		for i := len(l.Items) - 1; i >= 0; i-- {
+			if item, ok := l.Items[i].(*ListItem); ok {
+				if item.AddLine(s) {
+					return true
+				}
+			}
+		}
 	}
 	return l.Items[len(l.Items)-1].AddLine(s)
 }
