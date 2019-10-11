@@ -45,6 +45,13 @@ func (p *Paragraph) AddLine(s []rune) bool {
 			p.texts = append(p.texts, string(s))
 			return true
 		}
+	case *List:
+		// In order to solve of unwanted lists in paragraphs with hard-wrapped numerals,
+		// we allow only lists starting with 1 to interrupt paragraphs.
+		if typed.Ordered && typed.Start != 1 {
+			p.texts = append(p.texts, string(s))
+			return true
+		}
 	}
 
 	return false

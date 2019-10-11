@@ -97,7 +97,11 @@ func toHTML(block Blocker) string {
 	case *List:
 		typed.deduceIsTight()
 		if typed.Ordered {
-			s += "<ol>\n"
+			if typed.Start == 1 {
+				s += "<ol>\n"
+			} else {
+				s += fmt.Sprintf("<ol start=\"%d\">\n", typed.Start)
+			}
 		} else {
 			s += "<ul>\n"
 		}
@@ -111,9 +115,16 @@ func toHTML(block Blocker) string {
 			} else {
 				s += "<li>\n"
 			}
+			var lastParagraph *Paragraph
 			for _, block := range item.(*ListItem).blocks {
+				if lastParagraph != nil && lastParagraph.Tight {
+					s += "\n"
+				}
 				if p, ok := block.(*Paragraph); ok {
 					p.Tight = typed.Tight
+					lastParagraph = p
+				} else {
+					lastParagraph = nil
 				}
 				s += toHTML(block)
 			}

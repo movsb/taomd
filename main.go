@@ -24,6 +24,10 @@ func main() {
 		return
 	}
 
+	if example != "" && len(os.Args) > 1 {
+		panic("dup args")
+	}
+
 	fp, err := os.Open("spec.json")
 	if err != nil {
 		panic(err)

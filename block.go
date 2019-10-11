@@ -70,28 +70,32 @@ type List struct {
 }
 
 // begin tries to parse List start indicator.
-func (l *List) begin(s []rune) bool {
-	if len(l.Items) != 0 {
-		panic("wrong func call")
-	}
-
-	// TODO no spaces after marker
-	// -
-	// -
-	// -
-	// is treated as list.
-	_, n := peekSpaces(s, 4)
-	if !(1 <= n && n <= 4) {
-		return false
-	}
-
-	return l.AddLine(s)
-}
+// func (l *List) begin(s []rune) bool {
+// 	if len(l.Items) != 0 {
+// 		panic("wrong func call")
+// 	}
+//
+// 	// TODO no spaces after marker
+// 	// -
+// 	// -
+// 	// -
+// 	// is treated as list.
+// 	_, n := peekSpaces(s, 4)
+// 	if !(1 <= n && n <= 4) {
+// 		return false
+// 	}
+//
+// 	s, list, markerWidth, ok := l.parseMarker(s)
+//
+// 	return l.AddLine(s)
+// }
 
 func (l *List) parseMarker(s []rune) (remain []rune, list *List, markerWidth int, ok bool) {
 	list = &List{}
-
 	prefixWidth := 0
+
+	// for example 280, subsequent lines may have indent spaces.
+	s = skipPrefixSpaces(s, 3)
 
 	if marker, ook := in(s, '-', '+', '*'); ook {
 		list.Ordered = false
@@ -137,16 +141,57 @@ func (l *List) parseMarker(s []rune) (remain []rune, list *List, markerWidth int
 }
 
 func (l *List) AddLine(s []rune) bool {
-	if len(l.Items) > 0 {
-		for i := len(l.Items) - 1; i >= 0; i-- {
-			if item, ok := l.Items[i].(*ListItem); ok {
-				if item.AddLine(s) {
-					return true
-				}
+	var lastItem *ListItem
+
+	for i := len(l.Items) - 1; i >= 0; i-- {
+		if item, ok := l.Items[i].(*ListItem); ok {
+			lastItem = item
+			break
+		}
+	}
+
+	if lastItem != nil {
+		if len(s) == 1 && s[0] == '\n' {
+			if lastItem.AddLine(s) {
+				return true
+			}
+		}
+		_, nSkipped := peekSpaces(s, lastItem.spaces)
+		if nSkipped == lastItem.spaces {
+			s = s[nSkipped:]
+			if lastItem.AddLine(s) {
+				return true
 			}
 		}
 	}
-	return l.Items[len(l.Items)-1].AddLine(s)
+
+	s, list, markerWidth, ok := l.parseMarker(s)
+	if !ok {
+		return false
+	}
+
+	if lastItem != nil {
+		// Two list markers are of the same type if
+		//   (a) they are bullet list markers using the same character (-, +, or *)
+		// or
+		//   (b) they are ordered list numbers with the same delimiter (either . or )).
+		same := (l.Ordered == list.Ordered) && (l.MarkerChar == list.MarkerChar)
+		if !same {
+			return false
+		}
+	} else {
+		l.Ordered = list.Ordered
+		l.MarkerChar = list.MarkerChar
+		l.Start = list.Start
+	}
+
+	lastItem = &ListItem{
+		spaces: markerWidth,
+	}
+
+	l.Items = append(l.Items, lastItem)
+
+	return addLine(&lastItem.blocks, s)
 }
 
 // A list is loose if any of its constituent list items are separated by blank lines,
@@ -190,6 +235,10 @@ func (l *List) deduceIsTight() {
 					}
 				}
 			}
+			if ibp != nil && ibl != nil {
+				l.Tight = false
+				return
+			}
 		}
 	}
 	l.Tight = true
@@ -210,14 +259,17 @@ type ListItem struct {
 
 func (li *ListItem) AddLine(s []rune) bool {
 	if len(s) == 1 && s[0] == '\n' {
+		if len(li.blocks) > 0 && li.blocks[len(li.blocks)-1].AddLine(s) {
+			return true
+		}
 		li.blocks = append(li.blocks, &BlankLine{})
 		return true
 	}
-	_, nSkipped := peekSpaces(s, li.spaces)
-	if nSkipped != li.spaces {
-		return false
-	}
-	s = s[nSkipped:]
+	//_, nSkipped := peekSpaces(s, li.spaces)
+	//if nSkipped != li.spaces {
+	//	return false
+	//}
+	//s = s[nSkipped:]
 	return addLine(&li.blocks, s)
 }
 

@@ -92,7 +92,7 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 
 		if r, ok := in(s, '=', '-'); ok {
 			_ = r
-			rs, heading := tryParseSetextHeading(s)
+			rs, heading := tryParseSetextHeadingUnderline(s)
 			if heading != nil {
 				_ = rs
 				if n := len(blocks); n > 0 {
@@ -131,7 +131,7 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 		maybeListStart := '0' <= s[0] && s[0] <= '9'
 		if maybeListMarker || maybeListStart {
 			list := &List{}
-			if list.begin(s) {
+			if list.AddLine(s) {
 				blocks = append(blocks, list)
 				return true
 			}
@@ -415,8 +415,25 @@ func tryParseAtxHeading(c []rune) *Heading {
 	}
 }
 
-func tryParseSetextHeading(c []rune) ([]rune, *Heading) {
-	return nil, &Heading{}
+func tryParseSetextHeadingUnderline(c []rune) ([]rune, *Heading) {
+	start := c[0]
+	i := 0
+	for c[i] == start {
+		i++
+	}
+	for c[i] == ' ' {
+		i++
+	}
+	if i == len(c) || c[i] == '\n' {
+		level := 1
+		if start == '-' {
+			level = 2
+		}
+		return []rune{}, &Heading{
+			Level: level,
+		}
+	}
+	return c, nil
 }
 
 func tryParseFencedCodeBlockStart(s []rune, start rune, indent int) *CodeBlock {
