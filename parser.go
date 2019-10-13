@@ -8,17 +8,6 @@ import (
 	"strings"
 )
 
-func isText(s []rune) bool {
-	var blocks []Blocker
-	addLine(&blocks, s)
-	if len(blocks) > 0 {
-		if _, ok := blocks[0].(*Paragraph); ok {
-			return true
-		}
-	}
-	return false
-}
-
 func skipPrefixSpaces(s []rune, max int) (int, []rune) {
 	n := 0
 	for len(s) > n && s[n] == ' ' {
@@ -574,7 +563,7 @@ func tryParseBlockQuote(s []rune, bq *BlockQuote) (*BlockQuote, bool) {
 	return bq, addLine(&bq.blocks, s)
 }
 
-func parseInlines(raw string) []Inline {
+func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 	c := []rune(raw)
 	texts := list.New()
 	text := []rune{}
@@ -736,12 +725,15 @@ func parseInlines(raw string) []Inline {
 
 	appendDelimiter("")
 
-	var inlines []Inline
-	for e := texts.Back(); e != nil; e = e.Prev() {
-		inlines = append(inlines, e.Value)
-	}
+	return texts, delimiters
+}
 
-	return inlines
+func parseInlines(raw string) []Inline {
+	return nil
+}
+
+func parseEmphases(texts *list.List, delimiters *list.List, bottom *Delimiter) []Inline {
+	return nil
 }
 
 func textOnlyFromInlines(inlines []*Text) string {
