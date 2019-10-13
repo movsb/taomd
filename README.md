@@ -10,4 +10,6 @@ A markdown implementation.
 ## TEST
 
 - https://spec.commonmark.org/dingus/
-https://spec.commonmark.org/dingus/?text=
+- https://spec.commonmark.org/dingus/?text=
+
+**282 passed, 366 failed, 1 errored, 0 skipped**
