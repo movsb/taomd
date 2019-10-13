@@ -90,12 +90,12 @@ type List struct {
 // 	return l.AddLine(s)
 // }
 
-func (l *List) parseMarker(s []rune) (remain []rune, list *List, markerWidth int, ok bool) {
+func (l *List) parseMarker(s []rune) (remain []rune, list *List, prefixSpaces int, markerWidth int, ok bool) {
 	list = &List{}
 	prefixWidth := 0
 
 	// for example 280, subsequent lines may have indent spaces.
-	s = skipPrefixSpaces(s, 3)
+	prefixSpaces, s = skipPrefixSpaces(s, 3)
 
 	if marker, ook := in(s, '-', '+', '*'); ook {
 		list.Ordered = false
@@ -110,6 +110,10 @@ func (l *List) parseMarker(s []rune) (remain []rune, list *List, markerWidth int
 			start *= 10
 			start += int(s[i]) - '0'
 			i++
+		}
+		// ordered list start numbers must be nine digits or less
+		if i > 9 {
+			return
 		}
 		s = s[i:]
 		if len(s) == 0 {
@@ -137,7 +141,7 @@ func (l *List) parseMarker(s []rune) (remain []rune, list *List, markerWidth int
 
 	s = s[n:]
 
-	return s, list, prefixWidth + n, true
+	return s, list, prefixSpaces, prefixWidth + n, true
 }
 
 func (l *List) AddLine(s []rune) bool {
@@ -151,21 +155,12 @@ func (l *List) AddLine(s []rune) bool {
 	}
 
 	if lastItem != nil {
-		if len(s) == 1 && s[0] == '\n' {
-			if lastItem.AddLine(s) {
-				return true
-			}
-		}
-		_, nSkipped := peekSpaces(s, lastItem.spaces)
-		if nSkipped == lastItem.spaces {
-			s = s[nSkipped:]
-			if lastItem.AddLine(s) {
-				return true
-			}
+		if lastItem.AddLine(s) {
+			return true
 		}
 	}
 
-	s, list, markerWidth, ok := l.parseMarker(s)
+	s, list, prefixSpaces, markerWidth, ok := l.parseMarker(s)
 	if !ok {
 		return false
 	}
@@ -186,7 +181,8 @@ func (l *List) AddLine(s []rune) bool {
 	}
 
 	lastItem = &ListItem{
-		spaces: markerWidth,
+		prefixSpaces: prefixSpaces,
+		suffixSpaces: markerWidth,
 	}
 
 	l.Items = append(l.Items, lastItem)
@@ -253,8 +249,9 @@ func (l *List) parseInlines() {
 }
 
 type ListItem struct {
-	spaces int
-	blocks []Blocker
+	prefixSpaces int
+	suffixSpaces int
+	blocks       []Blocker
 }
 
 func (li *ListItem) AddLine(s []rune) bool {
@@ -265,11 +262,13 @@ func (li *ListItem) AddLine(s []rune) bool {
 		li.blocks = append(li.blocks, &BlankLine{})
 		return true
 	}
-	//_, nSkipped := peekSpaces(s, li.spaces)
-	//if nSkipped != li.spaces {
-	//	return false
-	//}
-	//s = s[nSkipped:]
+	_, nSkipped := peekSpaces(s, li.prefixSpaces)
+	s = s[nSkipped:]
+	_, nSkipped = peekSpaces(s, li.suffixSpaces)
+	if nSkipped != li.suffixSpaces {
+		return false
+	}
+	s = s[nSkipped:]
 	return addLine(&li.blocks, s)
 }
 

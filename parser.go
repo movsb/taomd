@@ -19,15 +19,15 @@ func isText(s []rune) bool {
 	return false
 }
 
-func skipPrefixSpaces(s []rune, max int) []rune {
+func skipPrefixSpaces(s []rune, max int) (int, []rune) {
 	n := 0
 	for len(s) > n && s[n] == ' ' {
 		n++
 	}
 	if max == -1 || n <= max {
-		return s[n:]
+		return n, s[n:]
 	}
-	return s
+	return n, s
 }
 
 func skipIf(s []rune, c rune) []rune {
@@ -51,6 +51,8 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 	if len(blocks) > 0 && blocks[len(blocks)-1].AddLine(s) {
 		return true
 	}
+
+	os := s
 
 	_, n := peekSpaces(s, 4)
 	if n >= 0 && n < 4 {
@@ -131,7 +133,7 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 		maybeListStart := '0' <= s[0] && s[0] <= '9'
 		if maybeListMarker || maybeListStart {
 			list := &List{}
-			if list.AddLine(s) {
+			if list.AddLine(os) {
 				blocks = append(blocks, list)
 				return true
 			}
@@ -554,7 +556,7 @@ exit:
 }
 
 func tryParseBlockQuote(s []rune, bq *BlockQuote) (*BlockQuote, bool) {
-	s = skipPrefixSpaces(s, 3)
+	_, s = skipPrefixSpaces(s, 3)
 
 	if len(s) == 0 || s[0] != '>' {
 		return bq, false
@@ -764,7 +766,7 @@ func parseLink(c []rune, link *Link) ([]rune, bool) {
 	}
 	c = c[1:]
 	i := 0
-	c = skipPrefixSpaces(c, -1)
+	_, c = skipPrefixSpaces(c, -1)
 	if len(c) == 0 {
 		return nil, false
 	}
@@ -827,7 +829,7 @@ func parseLink(c []rune, link *Link) ([]rune, bool) {
 		c = c[i:]
 	}
 
-	c = skipPrefixSpaces(c, -1)
+	_, c = skipPrefixSpaces(c, -1)
 
 	if len(c) == 0 {
 		return nil, false
@@ -860,7 +862,7 @@ func parseLink(c []rune, link *Link) ([]rune, bool) {
 
 	c = c[i:]
 	i = 0
-	c = skipPrefixSpaces(c, -1)
+	_, c = skipPrefixSpaces(c, -1)
 	if len(c) == 0 || c[0] != ')' {
 		return nil, false
 	}
@@ -875,7 +877,7 @@ func parseImage(c []rune, image *Image) ([]rune, bool) {
 	}
 	c = c[1:]
 	i := 0
-	c = skipPrefixSpaces(c, -1)
+	_, c = skipPrefixSpaces(c, -1)
 	if len(c) == 0 {
 		return nil, false
 	}
@@ -938,7 +940,7 @@ func parseImage(c []rune, image *Image) ([]rune, bool) {
 		c = c[i:]
 	}
 
-	c = skipPrefixSpaces(c, -1)
+	_, c = skipPrefixSpaces(c, -1)
 
 	if len(c) == 0 {
 		return nil, false
@@ -971,7 +973,7 @@ func parseImage(c []rune, image *Image) ([]rune, bool) {
 
 	c = c[i:]
 	i = 0
-	c = skipPrefixSpaces(c, -1)
+	_, c = skipPrefixSpaces(c, -1)
 	if len(c) == 0 || c[0] != ')' {
 		return nil, false
 	}
