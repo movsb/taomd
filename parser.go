@@ -729,7 +729,13 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 }
 
 func parseInlines(raw string) []Inline {
-	return nil
+	texts, delimiters := parseInlinesToDeimiters(raw)
+	_ = delimiters
+	inlines := []Inline{}
+	for t := texts.Back(); t != nil; t = t.Prev() {
+		inlines = append(inlines, t.Value)
+	}
+	return inlines
 }
 
 func parseEmphases(texts *list.List, delimiters *list.List, bottom *Delimiter) []Inline {
