@@ -27,6 +27,58 @@ func escapeAttr(s string) string {
 	return s
 }
 
+func toInline(inline Inline) string {
+	s := ""
+	switch it := inline.(type) {
+	default:
+		panic("unhandled inline: " + reflect.TypeOf(it).String())
+	case *Text:
+		s += html.EscapeString(it.Text)
+	case *Link:
+		s += fmt.Sprintf(`<a href="%s"`, escapeAttr(it.Link))
+		if it.Title != "" {
+			s += fmt.Sprintf(` title="%s"`, escapeAttr(it.Title))
+		}
+		s += ">"
+		for _, inline := range it.Inlines {
+			s += html.EscapeString(inline.Text)
+		}
+		s += "</a>"
+	case *Image:
+		s += fmt.Sprintf(`<img src="%s"`, escapeAttr(it.Link))
+		if it.Alt != "" {
+			s += fmt.Sprintf(` alt="%s"`, escapeAttr(it.Alt))
+		}
+		if it.Title != "" {
+			s += fmt.Sprintf(` title="%s"`, escapeAttr(it.Title))
+		}
+		s += " />"
+	case *Emphasis:
+		switch it.Delimiter {
+		default:
+			panic("unknown delimiter")
+		case "*", "_":
+			s += "<em>"
+		case "**", "__":
+			s += "<strong>"
+		}
+
+		for _, i := range it.Inlines {
+			s += toInline(i)
+		}
+
+		switch it.Delimiter {
+		default:
+			panic("unknown delimiter")
+		case "*", "_":
+			s += "</em>"
+		case "**", "__":
+			s += "</strong>"
+		}
+	}
+	return s
+}
+
 func toHTML(block Blocker) string {
 	s := ""
 	switch typed := block.(type) {
@@ -37,33 +89,8 @@ func toHTML(block Blocker) string {
 			s += "<p>"
 		}
 		for _, inline := range typed.Inlines {
-			switch it := inline.(type) {
-			default:
-				panic("unhandled inline: " + reflect.TypeOf(it).String())
-			case *Text:
-				s += html.EscapeString(it.Text)
-			case *Link:
-				s += fmt.Sprintf(`<a href="%s"`, escapeAttr(it.Link))
-				if it.Title != "" {
-					s += fmt.Sprintf(` title="%s"`, escapeAttr(it.Title))
-				}
-				s += ">"
-				for _, inline := range it.Inlines {
-					s += html.EscapeString(inline.Text)
-				}
-				s += "</a>"
-			case *Image:
-				s += fmt.Sprintf(`<img src="%s"`, escapeAttr(it.Link))
-				if it.Alt != "" {
-					s += fmt.Sprintf(` alt="%s"`, escapeAttr(it.Alt))
-				}
-				if it.Title != "" {
-					s += fmt.Sprintf(` title="%s"`, escapeAttr(it.Title))
-				}
-				s += " />"
-			}
+			s += toInline(inline)
 		}
-
 		if !typed.Tight {
 			s += "</p>\n"
 		}

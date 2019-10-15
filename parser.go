@@ -730,16 +730,85 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 
 func parseInlines(raw string) []Inline {
 	texts, delimiters := parseInlinesToDeimiters(raw)
-	_ = delimiters
-	inlines := []Inline{}
+	return parseEmphases(texts, delimiters, nil)
+}
+
+func parseEmphases(texts *list.List, delimiters *list.List, bottom *list.Element) []Inline {
+	if bottom == nil {
+		bottom = delimiters.Back()
+	}
+	openersBottom := map[string]*list.Element{
+		"*":  bottom,
+		"_":  bottom,
+		"**": bottom,
+		"__": bottom,
+	}
+
+	var closer *list.Element
+
+	for {
+		var cd *Delimiter
+
+		for closer = bottom; closer != nil; closer = closer.Prev() {
+			cd = closer.Value.(*Delimiter)
+			if cd.canCloseEmphasis() {
+				break
+			}
+		}
+
+		if closer == nil {
+			break
+		}
+
+		var opener *list.Element
+		var od *Delimiter
+
+		for opener = closer.Next(); opener != nil; opener = opener.Next() {
+			od = opener.Value.(*Delimiter)
+			if od.canOpenEmphasis() && od.text == closer.Value.(*Delimiter).text {
+				break
+			}
+		}
+
+		if opener == nil {
+			openersBottom[cd.text] = closer
+		}
+
+		if !od.canOpenEmphasis() {
+			e := closer
+			closer = closer.Prev()
+			delimiters.Remove(e)
+			continue
+		}
+
+		e := &Emphasis{}
+		e.Delimiter = od.text
+		for t := od.textElement.Prev(); t != cd.textElement; {
+			e.Inlines = append(e.Inlines, t.Value)
+			t = t.Prev()
+		}
+		texts.InsertAfter(e, od.textElement)
+
+		for t := od.textElement; t != nil; {
+			next := t.Prev()
+			texts.Remove(t)
+			if t == closer {
+				break
+			}
+			t = next
+		}
+
+		delimiters.Remove(opener)
+		save := closer.Prev()
+		delimiters.Remove(closer)
+		closer = save
+	}
+
+	var inlines []Inline
 	for t := texts.Back(); t != nil; t = t.Prev() {
 		inlines = append(inlines, t.Value)
 	}
 	return inlines
-}
-
-func parseEmphases(texts *list.List, delimiters *list.List, bottom *Delimiter) []Inline {
-	return nil
 }
 
 func textOnlyFromInlines(inlines []*Text) string {

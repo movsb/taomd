@@ -169,3 +169,8 @@ type Image struct {
 	Alt     string
 	Title   string
 }
+
+type Emphasis struct {
+	Delimiter string
+	Inlines   []Inline
+}
