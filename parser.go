@@ -746,10 +746,12 @@ func parseEmphases(texts *list.List, delimiters *list.List, bottom *list.Element
 
 	var closer *list.Element
 
+	closer = bottom
+
 	for {
 		var cd *Delimiter
 
-		for closer = bottom; closer != nil; closer = closer.Prev() {
+		for ; closer != nil; closer = closer.Prev() {
 			cd = closer.Value.(*Delimiter)
 			if cd.canCloseEmphasis() {
 				break
@@ -772,6 +774,12 @@ func parseEmphases(texts *list.List, delimiters *list.List, bottom *list.Element
 
 		if opener == nil {
 			openersBottom[cd.text] = closer
+			next := closer.Prev()
+			if !cd.canOpenEmphasis() {
+				delimiters.Remove(closer)
+			}
+			closer = next
+			continue
 		}
 
 		if !od.canOpenEmphasis() {
@@ -792,7 +800,7 @@ func parseEmphases(texts *list.List, delimiters *list.List, bottom *list.Element
 		for t := od.textElement; t != nil; {
 			next := t.Prev()
 			texts.Remove(t)
-			if t == closer {
+			if t == closer.Value.(*Delimiter).textElement {
 				break
 			}
 			t = next

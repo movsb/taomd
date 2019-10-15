@@ -9,8 +9,23 @@ type _Inliner interface {
 type Inline interface {
 }
 
+type ITextContent interface {
+	TextContent() string
+}
+
+func textContent(i interface{}) string {
+	if tc, ok := i.(ITextContent); ok {
+		return tc.TextContent()
+	}
+	return ""
+}
+
 type Text struct {
 	Text string
+}
+
+func (t *Text) TextContent() string {
+	return t.Text
 }
 
 type Delimiter struct {
@@ -43,8 +58,8 @@ func (d *Delimiter) isLeftFlanking() bool {
 	}
 
 	// not followed by Unicode whitespace
-	nextText := next.Value.(*Text).Text
-	if nextText[0] == ' ' {
+	nextText := textContent(next.Value)
+	if nextText[0] == ' ' || nextText[0] == '\n' {
 		return false
 	}
 
@@ -58,9 +73,9 @@ func (d *Delimiter) isLeftFlanking() bool {
 		return true
 	}
 
-	prevText := prev.Value.(*Text).Text
+	prevText := textContent(prev.Value)
 	lastChar := prevText[len(prevText)-1]
-	if lastChar == ' ' || isPunctuation(rune(lastChar)) {
+	if lastChar == ' ' || lastChar == '\n' || isPunctuation(rune(lastChar)) {
 		return true
 	}
 
@@ -91,9 +106,9 @@ func (d *Delimiter) isRightFlanking() bool {
 	}
 
 	// not preceded by Unicode whitespace
-	prevText := prev.Value.(*Text).Text
+	prevText := textContent(prev.Value)
 	lastChar := prevText[len(prevText)-1]
-	if lastChar == ' ' {
+	if lastChar == ' ' || lastChar == '\n' {
 		return false
 	}
 
@@ -107,8 +122,8 @@ func (d *Delimiter) isRightFlanking() bool {
 		return true
 	}
 
-	nextText := prev.Value.(*Text).Text
-	if nextText[0] == ' ' || isPunctuation(rune(nextText[0])) {
+	nextText := textContent(next.Value)
+	if nextText[0] == ' ' || nextText[0] == '\n' || isPunctuation(rune(nextText[0])) {
 		return true
 	}
 
@@ -121,14 +136,14 @@ func delimiterPrecedeOrFollowedByPunctuation(d *Delimiter, precede bool) bool {
 		if te == nil {
 			return false
 		}
-		t := te.Value.(*Text).Text
+		t := textContent(te.Value)
 		return isPunctuation(rune(t[len(t)-1]))
 	} else {
 		te := d.textElement.Prev()
 		if te == nil {
 			return false
 		}
-		t := te.Value.(*Text).Text
+		t := textContent(te.Value)
 		return isPunctuation(rune(t[0]))
 	}
 }
@@ -163,11 +178,19 @@ type Link struct {
 	Title   string
 }
 
+func (l *Link) TextContent() string {
+	return l.Title
+}
+
 type Image struct {
 	Link    string
 	inlines []*Text
 	Alt     string
 	Title   string
+}
+
+func (i *Image) TextContent() string {
+	return i.Alt
 }
 
 type Emphasis struct {

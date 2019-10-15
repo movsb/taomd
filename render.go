@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"html"
 	"reflect"
 	"strings"
 )
@@ -27,13 +26,18 @@ func escapeAttr(s string) string {
 	return s
 }
 
+func escapeText(s string) string {
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	return s
+}
+
 func toInline(inline Inline) string {
 	s := ""
 	switch it := inline.(type) {
 	default:
 		panic("unhandled inline: " + reflect.TypeOf(it).String())
 	case *Text:
-		s += html.EscapeString(it.Text)
+		s += escapeText(it.Text)
 	case *Link:
 		s += fmt.Sprintf(`<a href="%s"`, escapeAttr(it.Link))
 		if it.Title != "" {
@@ -41,7 +45,7 @@ func toInline(inline Inline) string {
 		}
 		s += ">"
 		for _, inline := range it.Inlines {
-			s += html.EscapeString(inline.Text)
+			s += escapeText(inline.Text)
 		}
 		s += "</a>"
 	case *Image:
@@ -103,7 +107,7 @@ func toHTML(block Blocker) string {
 		s += fmt.Sprintf("<h%[1]d>%s</h%[1]d>\n", typed.Level, typed.text)
 	case *CodeBlock:
 		if typed.Lang == "" {
-			s += fmt.Sprintf("<pre><code>%s</code></pre>\n", html.EscapeString(typed.String()))
+			s += fmt.Sprintf("<pre><code>%s</code></pre>\n", escapeText(typed.String()))
 		} else {
 			lang := typed.Lang
 			if p := strings.IndexAny(lang, " \t"); p != -1 {
@@ -112,7 +116,7 @@ func toHTML(block Blocker) string {
 			s += fmt.Sprintf(
 				"<pre><code class=\"language-%s\">%s</code></pre>\n",
 				lang,
-				html.EscapeString(typed.String()),
+				escapeText(typed.String()),
 			)
 		}
 	case *BlockQuote:
