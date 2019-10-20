@@ -27,7 +27,10 @@ func escapeAttr(s string) string {
 }
 
 func escapeText(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
 	s = strings.ReplaceAll(s, "\"", "&quot;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
 	return s
 }
 
@@ -79,6 +82,10 @@ func toInline(inline Inline) string {
 		case "**", "__":
 			s += "</strong>"
 		}
+	case *LineBreak:
+		s += "<br />\n"
+	case *CodeSpan:
+		s += it.String()
 	}
 	return s
 }

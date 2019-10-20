@@ -590,6 +590,18 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 		}
 	}
 
+	appendText := func(inline Inline) {
+		if len(text) > 0 {
+			texts.PushFront(&Text{
+				Text: string(text),
+			})
+			text = text[:0]
+		}
+		if inline != nil {
+			texts.PushFront(inline)
+		}
+	}
+
 	i := 0
 	for i < len(c) {
 		switch ch := c[i]; ch {
@@ -700,11 +712,19 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 				texts.PushFront(&image)
 			}
 		case '\\':
-			if j := i + 1; j < len(c) && isPunctuation(c[j]) {
-				text = append(text, c[j])
-				i++
-				i++
-				continue
+			if j := i + 1; j < len(c) {
+				if isPunctuation(c[j]) {
+					text = append(text, c[j])
+					i++
+					i++
+					continue
+				} else if c[j] == '\n' {
+					// A backslash at the end of the line is a hard line break
+					appendText(&LineBreak{})
+					i++
+					i++
+					continue
+				}
 			}
 			text = append(text, '\\')
 			i++
@@ -717,6 +737,21 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 			}
 			text = append(text, '<')
 			i++
+		case '`':
+			if nc, span := tryParseCodeSpan(c[i:]); span != nil {
+				i = 0
+				c = nc
+				appendText(span)
+				continue
+			}
+			j := i
+			for ; j < len(c) && c[j] == '`'; j++ {
+				j++
+			}
+			appendText(&Text{
+				Text: strings.Repeat("`", j-i+1),
+			})
+			i = j
 		default:
 			text = append(text, ch)
 			i++

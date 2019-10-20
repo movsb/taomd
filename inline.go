@@ -197,3 +197,11 @@ type Emphasis struct {
 	Delimiter string
 	Inlines   []Inline
 }
+
+// "<br />"
+type LineBreak struct {
+}
+
+// " "
+type SoftBreak struct {
+}
