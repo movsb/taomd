@@ -205,3 +205,31 @@ type LineBreak struct {
 // " "
 type SoftBreak struct {
 }
+
+// An HtmlTag (HTML tag) consists of an open tag, a closing tag, an HTML comment,
+// a processing instruction, a declaration, or a CDATA section.
+//
+// Text between < and > that looks like an HTML tag is parsed as a raw HTML tag
+// and will be rendered in HTML without escaping.
+// Tag and attribute names are not limited to current HTML tags,
+// so custom tags (and even, say, DocBook tags) may be used.
+type HtmlTag struct {
+	Tag string
+}
+
+/*
+type HtmlTagType int
+
+const (
+	HtmlTagOpen = iota
+	HtmlTagClosing
+	HtmlTagComment
+	HtmlTagProcessingInstruction
+	HtmlTagDeclaration
+	HtmlTagCDATA
+)
+
+type HtmlAttribute struct {
+
+}
+*/

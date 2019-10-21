@@ -86,6 +86,8 @@ func toInline(inline Inline) string {
 		s += "<br />\n"
 	case *CodeSpan:
 		s += it.String()
+	case *HtmlTag:
+		s += it.Tag
 	}
 	return s
 }

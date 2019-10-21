@@ -257,6 +257,11 @@ func in(c []rune, rs ...rune) (rune, bool) {
 	return 0, false
 }
 
+func any(c rune, rs ...rune) bool {
+	_, ok := in([]rune{c}, rs...)
+	return ok
+}
+
 func parse(in io.Reader, example int) *Document {
 	var doc Document
 	doc.example = example
@@ -620,7 +625,6 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 				i++
 			} else {
 				text = append(text, '!')
-				i++
 			}
 		case '[':
 			appendDelimiter("[")
@@ -682,7 +686,6 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 					link.Inlines = append(link.Inlines, e.Value.(*Text))
 					texts.Remove(e)
 				}
-
 			} else {
 				for e := opener.textElement.Prev(); e != nil; e = e.Prev() {
 					image.inlines = append(image.inlines, e.Value.(*Text))
@@ -733,6 +736,12 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 				c = nc
 				i = 0
 				texts.PushFront(link)
+				continue
+			}
+			if nc, tag := tryParseHtmlTag(c[i:]); tag != nil {
+				i = 0
+				c = nc
+				appendText(tag)
 				continue
 			}
 			text = append(text, '<')
@@ -1211,8 +1220,17 @@ func isAlNum(r rune) bool {
 		'A' <= r && r <= 'Z'
 }
 
+func isAlpha(r rune) bool {
+	return 'a' <= r && r <= 'z' ||
+		'A' <= r && r <= 'Z'
+}
+
 func isNum(r rune) bool {
 	return '0' <= r && r <= '9'
+}
+
+func isWahitespace(r rune) bool {
+	return r == ' ' || r == '\t' || r == '\n'
 }
 
 func tryParseHtmlEntity(c []rune) ([]rune, rune, bool) {
@@ -1286,5 +1304,329 @@ func tryParseHtmlEntity(c []rune) ([]rune, rune, bool) {
 			j++
 			return c[j:], rune(n), true
 		}
+	}
+}
+
+func tryParseHtmlTag(c []rune) ([]rune, *HtmlTag) {
+	i := 0
+	if i == len(c) || c[i] != '<' {
+		return c, nil
+	}
+
+	i++ // skip '<'
+
+	if i == len(c) {
+		return c, nil
+	}
+
+	tryParseTagName := func() int {
+		j := i
+
+		// A tag name consists of an ASCII letter
+		if j == len(c) || !isAlpha(c[j]) {
+			return j
+		}
+
+		j++
+
+		// followed by zero or more ASCII letters, digits, or hyphens (-).
+		for j < len(c) && (isAlNum(c[j]) || c[j] == '-') {
+			j++
+		}
+
+		return j
+	}
+
+	tryParseAttributeName := func() int {
+		j := i
+
+		// An attribute name consists of an ASCII letter, _, or :,
+		if j == len(c) || !(isAlpha(c[j]) || c[j] == '_' || c[j] == ':') {
+			return j
+		}
+
+		j++
+
+		// followed by zero or more ASCII letters, digits, _, ., :, or -.
+		for j < len(c) && (isAlNum(c[j]) || any(c[j], '_', '.', ':', '-')) {
+			j++
+		}
+
+		return j
+	}
+
+	tryParseAttributeValue := func() (end int, quoted bool) {
+		j := i
+
+		if j == len(c) {
+			return j, false
+		}
+
+		switch c[j] {
+		// A single-quoted attribute value consists of ', zero or more characters not including ', and a final '.
+		// A double-quoted attribute value consists of ", zero or more characters not including ", and a final ".
+		case '\'', '"':
+			q := c[j]
+			j++
+			for j < len(c) && c[j] != q {
+				j++
+			}
+			if j == len(c) || c[j] != q {
+				return i, false
+			}
+			return j + 1, true
+		// An unquoted attribute value is a nonempty string of characters not including whitespace, ", ', =, <, >, or `.
+		default:
+			for j < len(c) && !(isWahitespace(c[j]) || any(c[j], '"', '\'', '=', '<', '>', '`')) {
+				j++
+			}
+			return j, false
+		}
+	}
+
+	skipWhitespaces := func(atLeast int) bool {
+		j := i
+		for j < len(c) && isWahitespace(c[j]) {
+			j++
+		}
+		if j-i >= atLeast {
+			i = j
+			return true
+		}
+		return false
+	}
+
+	switch c[i] {
+	// A closing tag consists of the string </, a tag name, optional whitespace, and the character >.
+	case '/':
+		i++
+
+		j := tryParseTagName()
+		// A tag name is non-empty.
+		if j == i {
+			return c, nil
+		}
+		i = j
+
+		skipWhitespaces(0)
+
+		if i == len(c) || c[i] != '>' {
+			return c, nil
+		}
+
+		i++
+
+		return c[i:], &HtmlTag{
+			Tag: string(c[0:i]),
+		}
+	// A processing instruction consists of the string <?,
+	// a string of characters not including the string ?>, and the string ?>.
+	case '?':
+		i++
+
+		for i < len(c) {
+			for i < len(c) && c[i] != '>' {
+				i++
+			}
+
+			if i == len(c) {
+				return c, nil
+			}
+
+			// ends with '?>' and '<?>' is illegal
+			if c[i-1] == '?' && len(c) > 3 {
+				i++
+				return c[i:], &HtmlTag{
+					Tag: string(c[0:i]),
+				}
+			}
+
+			i++ // skip '>'
+		}
+
+		return c, nil
+	case '!':
+		i++
+
+		if i == len(c) {
+			return c, nil
+		}
+
+		switch c[i] {
+		// A CDATA section consists of the string <![CDATA[, a string of
+		// characters not including the string ]]>, and the string ]]>.
+		case '[':
+			i++
+			if j := i; !(j+5 < len(c) && c[j+0] == 'C' && c[j+1] == 'D' && c[j+2] == 'A' && c[j+3] == 'T' && c[j+4] == 'A' && c[j+5] == '[') {
+				return c, nil
+			}
+			i += 6 // "CDATA["
+
+			if i == len(c) {
+				return c, nil
+			}
+
+			for i < len(c) {
+				for i < len(c) && c[i] != '>' {
+					i++
+				}
+
+				if i == len(c) {
+					return c, nil
+				}
+
+				i++ // skip '>'
+
+				// ends with ']]>'
+				if c[i-2] == ']' && c[i-3] == ']' {
+					return c[i:], &HtmlTag{
+						Tag: string(c[0:i]),
+					}
+				}
+			}
+
+			return c, nil
+		case '-':
+			i++
+			if i == len(c) || c[i] != '-' {
+				return c, nil
+			}
+			i++
+			if i == len(c) {
+				return c, nil
+			}
+
+			//  text does not start with > or ->
+			if c[i] == '>' && (i+1 < len(c) && c[i+0] == '-' && c[i+1] == '>') {
+				return c, nil
+			}
+
+			for i < len(c) {
+				for i < len(c) && c[i] != '>' {
+					i++
+				}
+
+				if i == len(c) {
+					return c, nil
+				}
+
+				i++ // skip '>'
+
+				// ends with '-->'
+				// NOT COMPATIBLE: does not end with -, and does not contain --
+				if len(c) >= 7 && c[i-3] == '-' && c[i-2] == '-' && c[i-1] == '>' {
+					return c[i:], &HtmlTag{
+						Tag: string(c[0:i]),
+					}
+				}
+			}
+
+			return c, nil
+
+		// A declaration consists of the string <!, a name consisting of one or more uppercase ASCII letters,
+		// whitespace, a string of characters not including the character >, and the character >.
+		default:
+			j := i
+			for j < len(c) && ('A' <= c[j] && c[j] <= 'Z') {
+				j++
+			}
+			if j == i {
+				return c, nil
+			}
+			i = j
+
+			if !skipWhitespaces(1) {
+				return c, nil
+			}
+
+			for i < len(c) && c[i] != '>' {
+				i++
+			}
+
+			if i == len(c) {
+				return c, nil
+			}
+
+			i++
+
+			return c[i:], &HtmlTag{
+				Tag: string(c[0:i]),
+			}
+		}
+	// An open tag consists of a < character, a tag name, zero or more attributes,
+	// optional whitespace, an optional / character, and a > character.
+	default:
+		j := tryParseTagName()
+		// A tag name is non-empty.
+		if j == i {
+			return c, nil
+		}
+		i = j
+
+		skipped := false
+
+		for i < len(c) {
+			if !skipped && !skipWhitespaces(1) {
+				break
+			}
+			skipped = false
+			if i == len(c) {
+				break
+			}
+
+			j := tryParseAttributeName()
+			if j == i {
+				break
+			}
+			i = j
+
+			skipWhitespaces(0)
+			if i == len(c) {
+				return c, nil
+			}
+
+			if c[i] != '=' {
+				skipped = true
+				continue
+			}
+
+			i++ // skip '='
+
+			skipWhitespaces(0)
+			if i == len(c) {
+				break
+			}
+
+			j, quoted := tryParseAttributeValue()
+			if j == i {
+				break
+			}
+			_ = quoted
+			i = j
+		}
+
+		if i == len(c) {
+			return c, nil
+		}
+
+		if c[i] == '/' {
+			i++
+			if i == len(c) || c[i] != '>' {
+				return c, nil
+			}
+			i++
+			return c[i:], &HtmlTag{
+				Tag: string(c[0:i]),
+			}
+		}
+
+		if c[i] == '>' {
+			i++
+			return c[i:], &HtmlTag{
+				Tag: string(c[0:i]),
+			}
+		}
+
+		return c, nil
 	}
 }
