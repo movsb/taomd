@@ -752,6 +752,22 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 				Text: strings.Repeat("`", j-i+1),
 			})
 			i = j
+		case '&':
+			if nc, entity, ok := tryParseHtmlEntity(c[i:]); ok {
+				i = 0
+				c = nc
+				if entity == 0 {
+					entity = 0xFFFD
+				}
+				appendText(&Text{
+					Text: string(entity),
+				})
+				continue
+			}
+			appendText(&Text{
+				Text: "&",
+			})
+			i++
 		default:
 			text = append(text, ch)
 			i++
@@ -1181,4 +1197,94 @@ func parseAutoLink(c []rune) ([]rune, *Link, bool) {
 		},
 	}
 	return c[i+1:], link, true
+}
+
+func isHexDigit(r rune) bool {
+	return '0' <= r && r <= '9' ||
+		'a' <= r && r <= 'f' ||
+		'A' <= r && r <= 'F'
+}
+
+func isAlNum(r rune) bool {
+	return '0' <= r && r <= '9' ||
+		'a' <= r && r <= 'z' ||
+		'A' <= r && r <= 'Z'
+}
+
+func isNum(r rune) bool {
+	return '0' <= r && r <= '9'
+}
+
+func tryParseHtmlEntity(c []rune) ([]rune, rune, bool) {
+	i := 0
+	if len(c) < 1 || c[i] != '&' {
+		return c, 0, false
+	}
+
+	i++
+	if i == len(c) {
+		return c, 0, false
+	}
+
+	switch c[i] {
+	default:
+		j := i
+		for j < len(c) && isAlNum(c[j]) {
+			j++
+		}
+		if j < len(c) && c[j] == ';' {
+			j++ // after ';'
+		}
+		if codepoint, ok := htmlEntities[string(c[0:j])]; ok {
+			return c[j:], codepoint, true
+		}
+		return c, 0, false
+	case '#':
+		i++
+		if i == len(c) {
+			return c, 0, false
+		}
+		switch c[i] {
+		default:
+			j := i
+			n := 0
+			for j < len(c) && isNum(c[j]) {
+				n *= 10
+				n += int(c[j]) - '0'
+				j++
+			}
+			if j == i || j-i > 7 {
+				return c, 0, false
+			}
+			if j == len(c) || c[j] != ';' {
+				return c, 0, false
+			}
+			j++
+			return c[j:], rune(n), true
+		case 'x', 'X':
+			i++
+			j := i
+			n := 0
+			for isHexDigit(c[j]) {
+				n *= 16
+				switch {
+				case '0' <= c[j] && c[j] <= '9':
+					n += int(c[j]) - '0'
+				case 'a' <= c[j] && c[j] <= 'f':
+					n += int(c[j]) - 'a'
+				case 'A' <= c[j] && c[j] <= 'F':
+					n += int(c[j]) - 'A'
+				}
+				j++
+			}
+			if j == i || j-i > 6 {
+				return c, 0, false
+			}
+			if j == len(c) || c[j] != ';' {
+				return c, 0, false
+			}
+			j++
+			return c[j:], rune(n), true
+		}
+	}
 }
