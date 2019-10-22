@@ -9,6 +9,7 @@ type Blocker interface {
 type Document struct {
 	example int
 	blocks  []Blocker
+	links   map[string]*LinkReferenceDefinition
 }
 
 func (doc *Document) AddLine(s []rune) {
@@ -358,4 +359,105 @@ func (cb *CodeBlock) AddLine(s []rune) bool {
 
 func (cb *CodeBlock) String() string {
 	return strings.Join(cb.lines, "")
+}
+
+// A LinkReferenceDefinition defines a label which can be used in reference links and reference-style images elsewhere in the document.
+// It does not correspond to a structural element of a document. Instead, it can come either before or after the links that use them.
+type LinkReferenceDefinition struct {
+	// It consists of a link label, indented up to three spaces, followed by a colon (:)
+	Label string
+
+	// optional whitespace (including up to one line ending), a link destination,
+	// optional whitespace (including up to one line ending),
+	Destination string
+
+	// and an optional link title, which if it is present must be separated from the link destination by whitespace.
+	Title string
+
+	destinationLine []rune
+	titleLine       []rune
+
+	errored         bool
+	wantDestination bool
+	wantTitle       bool
+}
+
+func (l *LinkReferenceDefinition) AddLine(c []rune) bool {
+	if l.wantDestination {
+		l.destinationLine = []rune(string(c))
+		_, c = skipPrefixSpaces(c, -1)
+		if len(c) == 0 {
+			l.wantDestination = false
+			return false
+		}
+		c, dest, ok := parseLinkDestination(c)
+		if !ok {
+			return false
+		}
+		l.Destination = dest
+		l.wantDestination = false
+
+		_, c = skipPrefixSpaces(c, -1)
+		if len(c) == 0 {
+			return true
+		}
+
+		if c[0] == '\n' {
+			return true
+		}
+
+		if !l.wantTitle {
+			l.errored = true
+			return false
+		}
+
+		c, title, ok := parseLinkTitle(c)
+		if !ok {
+			l.errored = true
+			return false
+		}
+		l.Title = title
+		l.wantTitle = false
+
+		_, c = skipPrefixSpaces(c, -1)
+		if len(c) != 0 || c[0] != '\n' {
+			l.errored = true
+			return false
+		}
+
+		return true
+	}
+
+	if l.wantTitle {
+		l.titleLine = c
+		_, c = skipPrefixSpaces(c, -1)
+		if len(c) == 0 {
+			l.wantTitle = false
+			return true
+		}
+
+		if c[0] == '\n' {
+			l.wantTitle = false
+			return true
+		}
+
+		c, title, ok := parseLinkTitle(c)
+		if !ok {
+			l.errored = true
+			return false
+		}
+
+		l.Title = title
+		l.wantTitle = false
+
+		_, c = skipPrefixSpaces(c, -1)
+		if len(c) != 0 || c[0] != '\n' {
+			l.errored = true
+			return false
+		}
+
+		return true
+	}
+
+	return false
 }

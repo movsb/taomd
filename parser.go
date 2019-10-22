@@ -128,6 +128,13 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 			}
 		}
 
+		if s[0] == '[' {
+			if link := tryParseLinkReferenceDefinition(s); link != nil {
+				blocks = append(blocks, link)
+				return true
+			}
+		}
+
 		p := &Paragraph{}
 		p.texts = append(p.texts, string(s))
 		blocks = append(blocks, p)
@@ -949,10 +956,49 @@ func parseLink(c []rune, link *Link) ([]rune, bool) {
 	if len(c) == 0 {
 		return nil, false
 	}
+
+	// after this, c is reset
+	c, dest, ok := parseLinkDestination(c)
+	if !ok {
+		return nil, false
+	}
+
+	link.Link = dest
+	i = 0
+
+	// The title may be omitted
+	if c[0] == ')' {
+		return c[1:], true
+	}
+
+	c, title, ok := parseLinkTitle(c)
+	if !ok {
+		return nil, false
+	}
+
+	link.Title = title
+	i = 0
+
+	_, c = skipPrefixSpaces(c, -1)
+	if len(c) == 0 || c[0] != ')' {
+		return nil, false
+	}
+
+	i++
+	return c[i:], true
+}
+
+func parseLinkDestination(c []rune) ([]rune, string, bool) {
+	if len(c) == 0 {
+		return c, "", false
+	}
+
+	i := 0
+	dest := []rune{}
+
 	angle := c[0] == '<'
 	if angle {
 		c = c[1:]
-		dest := []rune{}
 		i := 0
 		for i < len(c) && c[i] != '>' && c[i] != '\n' {
 			if c[i] == '\\' {
@@ -967,14 +1013,10 @@ func parseLink(c []rune, link *Link) ([]rune, bool) {
 			i++
 		}
 		if i == len(c) || c[i] != '>' {
-			return nil, false
+			return nil, "", false
 		}
-		link.Link = string(dest)
 		i++ // skip '>'
-		c = c[i:]
 	} else {
-		dest := []rune{}
-		i := 0
 		nParen := 0
 		for i < len(c) {
 			if c[i] <= ' ' || (c[i] == ')' && nParen == 0) {
@@ -1004,50 +1046,40 @@ func parseLink(c []rune, link *Link) ([]rune, bool) {
 				i++
 			}
 		}
-		link.Link = string(dest)
-		c = c[i:]
 	}
 
+	return c[i:], string(dest), true
+}
+
+func parseLinkTitle(c []rune) ([]rune, string, bool) {
 	_, c = skipPrefixSpaces(c, -1)
 
 	if len(c) == 0 {
-		return nil, false
-	}
-
-	// The title may be omitted
-	if c[0] == ')' {
-		return c[1:], true
+		return nil, "", false
 	}
 
 	// parse title
 	marker, ok := in(c, '\'', '"', '(')
 	if !ok {
-		return nil, false
+		return nil, "", false
 	}
 
 	start := 1
-	i = 1
+	i := 1
+
 	for i < len(c) && (c[i] != marker && !(marker == '(' && c[i] == ')')) {
 		i++
 	}
 
 	if i == len(c) {
-		return nil, false
+		return nil, "", false
 	}
 
-	link.Title = string(c[start:i])
+	title := string(c[start:i])
 
 	i++ // skip marker
 
-	c = c[i:]
-	i = 0
-	_, c = skipPrefixSpaces(c, -1)
-	if len(c) == 0 || c[0] != ')' {
-		return nil, false
-	}
-
-	i++
-	return c[i:], true
+	return c[i:], title, true
 }
 
 func parseImage(c []rune, image *Image) ([]rune, bool) {
@@ -1673,4 +1705,101 @@ func tryParseHtmlTag(c []rune) ([]rune, *HtmlTag) {
 
 		return c, nil
 	}
+}
+func tryParseLinkReferenceDefinition(c []rune) *LinkReferenceDefinition {
+	i := 0
+	if i == len(c) || c[i] != '[' {
+		return nil
+	}
+
+	i++ // skip '['
+
+	j := i
+	for j < len(c) && c[j] != ']' {
+		j++
+	}
+
+	if j == len(c) {
+		return nil
+	}
+
+	label := strings.TrimSpace(string(c[i:j]))
+
+	j++ // skip ']'
+
+	if n := len(label); n <= 0 || n > 999 {
+		return nil
+	}
+
+	label = "[" + label + "]"
+
+	if j == len(c) || c[j] != ':' {
+		return nil
+	}
+
+	j++
+
+	i = j
+
+	for i < len(c) && isWahitespace(c[i]) && c[i] != '\n' {
+		i++
+	}
+
+	if i == len(c) {
+		return nil
+	}
+
+	if c[i] == '\n' {
+		return &LinkReferenceDefinition{
+			Label:           label,
+			wantDestination: true,
+		}
+	}
+
+	c, dest, ok := parseLinkDestination(c[i:])
+	if !ok {
+		return nil
+	}
+
+	i = 0
+
+	for i < len(c) && isWahitespace(c[i]) && c[i] != '\n' {
+		i++
+	}
+
+	if i == len(c) {
+		return &LinkReferenceDefinition{
+			Label:       label,
+			Destination: dest,
+		}
+	}
+
+	if c[i] == '\n' {
+		return &LinkReferenceDefinition{
+			Label:       label,
+			Destination: dest,
+			wantTitle:   true,
+		}
+	}
+
+	c, title, ok := parseLinkTitle(c[i:])
+	if !ok {
+		return nil
+	}
+
+	i = 0
+
+	for i < len(c) && isWahitespace(c[i]) && c[i] != '\n' {
+		i++
+	}
+
+	if i == len(c) || c[i] == '\n' {
+		return &LinkReferenceDefinition{
+			Label:       label,
+			Destination: dest,
+			Title:       title,
+		}
+	}
+
+	return nil
 }
