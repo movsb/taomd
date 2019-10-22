@@ -818,13 +818,15 @@ func parseLineBreaks(texts *list.List) {
 		if ok1 && ok2 {
 			if currText.Text == "\n" {
 				if hasTwoSpaces(prevText.Text) {
-					prevText.Text = strings.TrimRight(prevText.Text, " ")
 					hard := &HardLineBreak{}
 					texts.InsertAfter(hard, current)
 				} else {
 					soft := &SoftLineBreak{}
 					texts.InsertAfter(soft, current)
 				}
+				// Spaces at the end of the line and beginning of the next line are removed
+				// beginnings are remove while adding line to paragraph.
+				prevText.Text = strings.TrimRight(prevText.Text, " ")
 				next := current.Prev()
 				texts.Remove(current)
 				current = next

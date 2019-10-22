@@ -210,13 +210,19 @@ type Emphasis struct {
 	Inlines   []Inline
 }
 
-// "<br />"
-type HardLineBreak struct {
-}
+// A HardLineBreak is a line break (not in a code span or HTML tag) that is preceded
+// by two or more spaces and does not occur at the end of a block is parsed as a
+// hard line break (rendered in HTML as a <br /> tag).
+type HardLineBreak struct{}
 
-// " "
-type SoftLineBreak struct {
-}
+// A SoftLineBreak is a regular line break (not in a code span or HTML tag) that is not preceded
+// by two or more spaces or a backslash is parsed as a softbreak.
+//
+// A softbreak may be rendered in HTML either as a line ending or as a space.
+// The result will be the same in browsers. In the examples, a line ending will be used.
+//
+// A renderer may also provide an option to render soft line breaks as hard line breaks.
+type SoftLineBreak struct{}
 
 // An HtmlTag (HTML tag) consists of an open tag, a closing tag, an HTML comment,
 // a processing instruction, a declaration, or a CDATA section.
