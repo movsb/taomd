@@ -82,8 +82,10 @@ func toInline(inline Inline) string {
 		case "**", "__":
 			s += "</strong>"
 		}
-	case *LineBreak:
+	case *HardLineBreak:
 		s += "<br />\n"
+	case *SoftLineBreak:
+		s += "\n"
 	case *CodeSpan:
 		s += it.String()
 	case *HtmlTag:

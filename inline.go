@@ -59,6 +59,9 @@ func (d *Delimiter) isLeftFlanking() bool {
 
 	// not followed by Unicode whitespace
 	nextText := textContent(next.Value)
+	if nextText == "" {
+		return false
+	}
 	if nextText[0] == ' ' || nextText[0] == '\n' {
 		return false
 	}
@@ -74,6 +77,9 @@ func (d *Delimiter) isLeftFlanking() bool {
 	}
 
 	prevText := textContent(prev.Value)
+	if prevText == "" {
+		return true
+	}
 	lastChar := prevText[len(prevText)-1]
 	if lastChar == ' ' || lastChar == '\n' || isPunctuation(rune(lastChar)) {
 		return true
@@ -107,6 +113,9 @@ func (d *Delimiter) isRightFlanking() bool {
 
 	// not preceded by Unicode whitespace
 	prevText := textContent(prev.Value)
+	if prevText == "" {
+		return false
+	}
 	lastChar := prevText[len(prevText)-1]
 	if lastChar == ' ' || lastChar == '\n' {
 		return false
@@ -123,6 +132,9 @@ func (d *Delimiter) isRightFlanking() bool {
 	}
 
 	nextText := textContent(next.Value)
+	if nextText == "" {
+		return true
+	}
 	if nextText[0] == ' ' || nextText[0] == '\n' || isPunctuation(rune(nextText[0])) {
 		return true
 	}
@@ -199,11 +211,11 @@ type Emphasis struct {
 }
 
 // "<br />"
-type LineBreak struct {
+type HardLineBreak struct {
 }
 
 // " "
-type SoftBreak struct {
+type SoftLineBreak struct {
 }
 
 // An HtmlTag (HTML tag) consists of an open tag, a closing tag, an HTML comment,

@@ -723,7 +723,7 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 					continue
 				} else if c[j] == '\n' {
 					// A backslash at the end of the line is a hard line break
-					appendText(&LineBreak{})
+					appendText(&HardLineBreak{})
 					i++
 					i++
 					continue
@@ -777,6 +777,11 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 				Text: "&",
 			})
 			i++
+		case '\n':
+			appendText(&Text{
+				Text: "\n",
+			})
+			i++
 		default:
 			text = append(text, ch)
 			i++
@@ -790,7 +795,44 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 
 func parseInlines(raw string) []Inline {
 	texts, delimiters := parseInlinesToDeimiters(raw)
+	parseLineBreaks(texts)
 	return parseEmphases(texts, delimiters, nil)
+}
+
+func parseLineBreaks(texts *list.List) {
+	if texts.Len() < 3 {
+		return
+	}
+
+	hasTwoSpaces := func(s string) bool {
+		n := len(s)
+		return n >= 2 && s[n-2] == ' ' && s[n-1] == ' '
+	}
+
+	current := texts.Back().Prev()
+	last := texts.Front()
+
+	for current != last {
+		prevText, ok2 := current.Next().Value.(*Text)
+		currText, ok1 := current.Value.(*Text)
+		if ok1 && ok2 {
+			if currText.Text == "\n" {
+				if hasTwoSpaces(prevText.Text) {
+					prevText.Text = strings.TrimRight(prevText.Text, " ")
+					hard := &HardLineBreak{}
+					texts.InsertAfter(hard, current)
+				} else {
+					soft := &SoftLineBreak{}
+					texts.InsertAfter(soft, current)
+				}
+				next := current.Prev()
+				texts.Remove(current)
+				current = next
+				continue
+			}
+		}
+		current = current.Prev()
+	}
 }
 
 func parseEmphases(texts *list.List, delimiters *list.List, bottom *list.Element) []Inline {
