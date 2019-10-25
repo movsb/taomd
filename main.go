@@ -14,12 +14,14 @@ type Test struct {
 	Example  int    `json:"example"`
 }
 
+var gdoc *Document
+
 func main() {
 	example := ""
 
 	if example == "" && len(os.Args) == 1 {
-		doc := parse(os.Stdin, -1)
-		h := render(doc)
+		gdoc = parse(os.Stdin, -1)
+		h := render(gdoc)
 		fmt.Print(h)
 		return
 	}
@@ -61,8 +63,8 @@ func main() {
 	}
 
 	t := m[example]
-	doc := parse(strings.NewReader(t.Markdown), t.Example)
-	if h := render(doc); h != t.HTML {
+	gdoc = parse(strings.NewReader(t.Markdown), t.Example)
+	if h := render(gdoc); h != t.HTML {
 		dumpFail(t.Markdown, t.HTML, h)
 	} else {
 		saveTestResults(example)

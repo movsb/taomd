@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"container/list"
 	"io"
 	"strings"
@@ -130,7 +128,9 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 
 		if s[0] == '[' {
 			if link := tryParseLinkReferenceDefinition(s); link != nil {
-				blocks = append(blocks, link)
+				if _, ok := gdoc.links[link.Label]; !ok {
+					gdoc.links[link.Label] = link
+				}
 				return true
 			}
 		}
@@ -269,35 +269,19 @@ func any(c rune, rs ...rune) bool {
 	return ok
 }
 
+var ls *LineScanner
+
 func parse(in io.Reader, example int) *Document {
 	var doc Document
+	gdoc = &doc
+
 	doc.example = example
+	doc.links = make(map[string]*LinkReferenceDefinition)
 
-	scn := bufio.NewScanner(in)
-	scn.Split(func(data []byte, atEOF bool) (advance int, token []byte, err error) {
-		if atEOF && len(data) == 0 {
-			return 0, nil, nil
-		}
-		if i := bytes.IndexByte(data, '\n'); i >= 0 {
-			// We have a full newline-terminated line.
-			return i + 1, data[0 : i+1], nil // \n is returned
-		}
-		// If we're at EOF, we have a final, non-terminated line. Return it.
-		if atEOF {
-			return len(data), data, nil
-		}
-		// Request more data.
-		return 0, nil, nil
-	})
+	ls = NewLineScanner(in)
 
-	//var i int
-
-	//var lastBlock interface{}
-	//var thisBlock interface{}
-
-	for scn.Scan() {
-		s := scn.Text()
-		doc.AddLine([]rune(s))
+	for ls.Scan() {
+		doc.AddLine(ls.Text())
 	}
 
 	doc.parseInlines()
@@ -670,6 +654,14 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 			var nc []rune
 			var ok bool
 
+			{
+				t := []*Text{}
+				for e := opener.textElement.Prev(); e != nil; e = e.Prev() {
+					t = append(t, e.Value.(*Text))
+				}
+				link.Text = textOnlyFromInlines(t)
+			}
+
 			if opener.text == "[" {
 				nc, ok = parseLink(c[i:], &link)
 			} else {
@@ -947,18 +939,55 @@ func parseEscape(c []rune) (rune, bool) {
 }
 
 func parseLink(c []rune, link *Link) ([]rune, bool) {
-	if len(c) == 0 || c[0] != '(' {
-		return c, false
-	}
-	c = c[1:]
 	i := 0
-	_, c = skipPrefixSpaces(c, -1)
-	if len(c) == 0 {
+
+	skipWhitespaces := func(atLeast int) bool {
+		j := i
+		for j < len(c) && isWahitespace(c[j]) {
+			j++
+		}
+		if j-i >= atLeast {
+			i = j
+			return true
+		}
+		return false
+	}
+
+	// shortcut reference link
+	if i == len(c) {
+		if gdoc.refLink(link.Text, link, false) {
+			return c[i:], true
+		}
 		return nil, false
 	}
 
-	// after this, c is reset
-	c, dest, ok := parseLinkDestination(c)
+	switch c[i] {
+	case '[':
+		nc, label, ok := parseLinkLabel(c[i:])
+		if !ok {
+			return nil, false
+		}
+		if label == "[]" {
+			label = "[" + link.Text + "]"
+		}
+		if !gdoc.refLink(label, link, true) {
+			return nil, false
+		}
+		return nc, true
+	}
+
+	if c[i] != '(' {
+		return nil, false
+	}
+	i++ // skip '('
+
+	skipWhitespaces(0)
+	if i == len(c) || c[i] == ')' {
+		i++
+		return c[i:], true
+	}
+
+	c, dest, ok := parseLinkDestination(c[i:])
 	if !ok {
 		return nil, false
 	}
@@ -966,12 +995,13 @@ func parseLink(c []rune, link *Link) ([]rune, bool) {
 	link.Link = dest
 	i = 0
 
-	// The title may be omitted
-	if c[0] == ')' {
-		return c[1:], true
+	skipWhitespaces(0)
+	if i == len(c) || c[i] == ')' {
+		i++
+		return c[i:], true
 	}
 
-	c, title, ok := parseLinkTitle(c)
+	c, title, ok := parseLinkTitle(c[i:])
 	if !ok {
 		return nil, false
 	}
@@ -979,13 +1009,47 @@ func parseLink(c []rune, link *Link) ([]rune, bool) {
 	link.Title = title
 	i = 0
 
-	_, c = skipPrefixSpaces(c, -1)
-	if len(c) == 0 || c[0] != ')' {
+	skipWhitespaces(0)
+
+	if i == len(c) || c[i] != ')' {
 		return nil, false
 	}
 
 	i++
+
 	return c[i:], true
+}
+
+func parseLinkLabel(c []rune) ([]rune, string, bool) {
+	i := 0
+	if i == len(c) || c[i] != '[' {
+		return nil, "", false
+	}
+
+	i++ // skip '['
+
+	j := i
+	for j < len(c) && c[j] != ']' {
+		j++
+	}
+
+	if j == len(c) {
+		return nil, "", false
+	}
+
+	label := strings.TrimSpace(string(c[i:j]))
+
+	j++ // skip ']'
+
+	if n := len(label); n <= 0 || n > 999 {
+		// return nil, "", false
+	}
+
+	label = "[" + label + "]"
+
+	i = j
+
+	return c[i:], label, true
 }
 
 func parseLinkDestination(c []rune) ([]rune, string, bool) {
@@ -999,7 +1063,7 @@ func parseLinkDestination(c []rune) ([]rune, string, bool) {
 	angle := c[0] == '<'
 	if angle {
 		c = c[1:]
-		i := 0
+		i = 0
 		for i < len(c) && c[i] != '>' && c[i] != '\n' {
 			if c[i] == '\\' {
 				if j := i + 1; j < len(c) && c[j] == '>' {
@@ -1706,42 +1770,30 @@ func tryParseHtmlTag(c []rune) ([]rune, *HtmlTag) {
 		return c, nil
 	}
 }
+
+func tryParseHtmlBlock(c []rune) ([]rune, *HtmlBlock) {
+	return nil, nil
+}
+
 func tryParseLinkReferenceDefinition(c []rune) *LinkReferenceDefinition {
 	i := 0
-	if i == len(c) || c[i] != '[' {
+	l := LinkReferenceDefinition{}
+
+	nc, label, ok := parseLinkLabel(c)
+	if !ok {
+		return nil
+	}
+	l.Label = label
+	c = nc
+	i = 0
+
+	if i == len(c) || c[i] != ':' {
 		return nil
 	}
 
-	i++ // skip '['
+	i++ // skip ':'
 
-	j := i
-	for j < len(c) && c[j] != ']' {
-		j++
-	}
-
-	if j == len(c) {
-		return nil
-	}
-
-	label := strings.TrimSpace(string(c[i:j]))
-
-	j++ // skip ']'
-
-	if n := len(label); n <= 0 || n > 999 {
-		return nil
-	}
-
-	label = "[" + label + "]"
-
-	if j == len(c) || c[j] != ':' {
-		return nil
-	}
-
-	j++
-
-	i = j
-
-	for i < len(c) && isWahitespace(c[i]) && c[i] != '\n' {
+	for i < len(c) && isWahitespace(c[i]) {
 		i++
 	}
 
@@ -1749,57 +1801,39 @@ func tryParseLinkReferenceDefinition(c []rune) *LinkReferenceDefinition {
 		return nil
 	}
 
-	if c[i] == '\n' {
-		return &LinkReferenceDefinition{
-			Label:           label,
-			wantDestination: true,
-		}
-	}
-
-	c, dest, ok := parseLinkDestination(c[i:])
+	nc, dest, ok := parseLinkDestination(c[i:])
 	if !ok {
 		return nil
 	}
 
+	l.Destination = dest
+	c = nc
 	i = 0
 
-	for i < len(c) && isWahitespace(c[i]) && c[i] != '\n' {
+	for i < len(c) && isWahitespace(c[i]) {
 		i++
 	}
 
 	if i == len(c) {
-		return &LinkReferenceDefinition{
-			Label:       label,
-			Destination: dest,
-		}
+		return &l
 	}
 
-	if c[i] == '\n' {
-		return &LinkReferenceDefinition{
-			Label:       label,
-			Destination: dest,
-			wantTitle:   true,
-		}
-	}
-
-	c, title, ok := parseLinkTitle(c[i:])
+	nc, title, ok := parseLinkTitle(c[i:])
 	if !ok {
 		return nil
 	}
 
+	l.Title = title
+	c = nc
 	i = 0
 
-	for i < len(c) && isWahitespace(c[i]) && c[i] != '\n' {
+	for i < len(c) && isWahitespace(c[i]) {
 		i++
 	}
 
-	if i == len(c) || c[i] == '\n' {
-		return &LinkReferenceDefinition{
-			Label:       label,
-			Destination: dest,
-			Title:       title,
-		}
+	if i != len(c) {
+		return nil
 	}
 
-	return nil
+	return &l
 }

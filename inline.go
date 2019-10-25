@@ -188,6 +188,7 @@ type Link struct {
 	Inlines []*Text
 	Link    string
 	Title   string
+	Text    string
 }
 
 func (l *Link) TextContent() string {

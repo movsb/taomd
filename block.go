@@ -24,6 +24,20 @@ func (doc *Document) parseInlines() {
 	}
 }
 
+func (doc *Document) refLink(label string, link *Link, enclosed bool) bool {
+	if !enclosed {
+		label = "[" + label + "]"
+	}
+	label = strings.ToLower(label)
+	ref, ok := doc.links[label]
+	if !ok {
+		return false
+	}
+	link.Link = ref.Destination
+	link.Title = ref.Title
+	return true
+}
+
 type BlockQuote struct {
 	blocks []Blocker
 }

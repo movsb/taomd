@@ -57,6 +57,10 @@ func (p *Paragraph) AddLine(s []rune) bool {
 			p.texts = append(p.texts, trimLeft(string(s)))
 			return true
 		}
+	case *LinkReferenceDefinition:
+		// A link reference definition cannot interrupt a paragraph.
+		p.texts = append(p.texts, trimLeft(string(s)))
+		return true
 	}
 
 	return false
