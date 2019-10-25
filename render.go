@@ -178,6 +178,10 @@ func toHTML(block Blocker) string {
 		} else {
 			s += "</ul>\n"
 		}
+	case *HtmlBlock:
+		for _, line := range typed.Lines {
+			s += string(line)
+		}
 	}
 	return s
 }

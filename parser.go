@@ -116,6 +116,13 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 			}
 		}
 
+		if _, ok := in(s, '<'); ok {
+			if hb := tryParseHtmlBlock(os); hb != nil {
+				blocks = append(blocks, hb)
+				return true
+			}
+		}
+
 		_, maybeListMarker := in(s, '-', '+', '*')
 		maybeListStart := '0' <= s[0] && s[0] <= '9'
 		if maybeListMarker || maybeListStart {
@@ -1771,8 +1778,277 @@ func tryParseHtmlTag(c []rune) ([]rune, *HtmlTag) {
 	}
 }
 
-func tryParseHtmlBlock(c []rune) ([]rune, *HtmlBlock) {
-	return nil, nil
+func tryParseHtmlBlock(c []rune) *HtmlBlock {
+	h := &HtmlBlock{}
+
+	i := 0
+	for i < len(c) && isWahitespace(c[i]) {
+		i++
+	}
+
+	if i == len(c) || c[i] != '<' {
+		return nil
+	}
+
+	i++ // skip '<'
+	if i == len(c) {
+		return nil
+	}
+
+	tryParseTagName := func() int {
+		j := i
+
+		// A tag name consists of an ASCII letter
+		if j == len(c) || !isAlpha(c[j]) {
+			return j
+		}
+
+		j++
+
+		// followed by zero or more ASCII letters, digits, or hyphens (-).
+		for j < len(c) && (isAlNum(c[j]) || c[j] == '-') {
+			j++
+		}
+
+		return j
+	}
+
+	skipWhitespaces := func(atLeast int) bool {
+		j := i
+		for j < len(c) && isWahitespace(c[j]) {
+			j++
+		}
+		if j-i >= atLeast {
+			i = j
+			return true
+		}
+		return false
+	}
+
+	_ = tryParseTagName
+
+	switch c[i] {
+	// Start condition: 3
+	case '?':
+		h.Lines = append(h.Lines, c)
+		h.condition = 3
+		return h
+	// Start condition: 6
+	case '/':
+		i++
+
+		j := tryParseTagName()
+		// A tag name is non-empty.
+		if j == i {
+			return nil
+		}
+		tagName := string(c[i:j])
+
+		i = j
+
+		if _, ok := htmlBlockStartCondition6TagNames[strings.ToLower(tagName)]; !ok {
+
+			// 7 complete closing tag
+			_, nc := skipPrefixSpaces(c[i:], -1)
+			if len(nc) > 0 && nc[0] == '>' || len(nc) > 1 && nc[0] == '>' && nc[1] == '\n' {
+				h.condition = 7
+				h.append(c)
+				return h
+			}
+
+			return nil
+		}
+
+		skipWhitespaces(0)
+
+		if i == len(c) {
+			h.condition = 6
+			h.append(c)
+			return h
+		}
+
+		if i+0 < len(c) && c[i+0] == '>' || i+1 < len(c) && c[i+0] == '/' && c[i+1] == '>' {
+			h.append(c)
+			h.condition = 6
+			return h
+		}
+
+		return nil
+	case '!':
+		i++
+
+		if i == len(c) {
+			return nil
+		}
+
+		switch c[i] {
+		case '[':
+			i++
+			if j := i; j+5 < len(c) && c[j+0] == 'C' && c[j+1] == 'D' && c[j+2] == 'A' && c[j+3] == 'T' && c[j+4] == 'A' && c[j+5] == '[' {
+				h.append(c)
+				h.condition = 5
+				return h
+			}
+			return nil
+		case '-':
+			i++
+			if i == len(c) || c[i] != '-' {
+				return nil
+			}
+			h.append(c)
+			h.condition = 2
+			return h
+		default:
+			if 'A' <= c[i] && c[i] <= 'Z' {
+				h.append(c)
+				h.condition = 4
+				return h
+			}
+			return nil
+		}
+	default:
+		j := tryParseTagName()
+		if j == i {
+			return nil
+		}
+		tagName := string(c[i:j])
+		i = j
+		if tagName == "script" || tagName == "pre" || tagName == "style" {
+			if i == len(c) || isWahitespace(c[i]) || c[i] == '>' {
+				h.append(c)
+				h.condition = 1
+				return h
+			}
+		}
+		if _, ok := htmlBlockStartCondition6TagNames[strings.ToLower(tagName)]; ok {
+			if i == len(c) || isWahitespace(c[i]) || i+0 < len(c) && c[i+0] == '>' || i+1 < len(c) && c[i+0] == '/' && c[i+1] == '>' {
+				h.append(c)
+				h.condition = 6
+				return h
+			}
+		}
+		// condition 7
+
+		tryParseAttributeName := func() int {
+			j := i
+
+			// An attribute name consists of an ASCII letter, _, or :,
+			if j == len(c) || !(isAlpha(c[j]) || c[j] == '_' || c[j] == ':') {
+				return j
+			}
+
+			j++
+
+			// followed by zero or more ASCII letters, digits, _, ., :, or -.
+			for j < len(c) && (isAlNum(c[j]) || any(c[j], '_', '.', ':', '-')) {
+				j++
+			}
+
+			return j
+		}
+
+		tryParseAttributeValue := func() (end int, quoted bool) {
+			j := i
+
+			if j == len(c) {
+				return j, false
+			}
+
+			switch c[j] {
+			// A single-quoted attribute value consists of ', zero or more characters not including ', and a final '.
+			// A double-quoted attribute value consists of ", zero or more characters not including ", and a final ".
+			case '\'', '"':
+				q := c[j]
+				j++
+				for j < len(c) && c[j] != q {
+					j++
+				}
+				if j == len(c) || c[j] != q {
+					return i, false
+				}
+				return j + 1, true
+			// An unquoted attribute value is a nonempty string of characters not including whitespace, ", ', =, <, >, or `.
+			default:
+				for j < len(c) && !(isWahitespace(c[j]) || any(c[j], '"', '\'', '=', '<', '>', '`')) {
+					j++
+				}
+				return j, false
+			}
+		}
+
+		skipped := false
+
+		for i < len(c) {
+			if !skipped && !skipWhitespaces(1) {
+				break
+			}
+			skipped = false
+			if i == len(c) {
+				break
+			}
+
+			j := tryParseAttributeName()
+			if j == i {
+				break
+			}
+			i = j
+
+			skipWhitespaces(0)
+			if i == len(c) {
+				return nil
+			}
+
+			if c[i] != '=' {
+				skipped = true
+				continue
+			}
+
+			i++ // skip '='
+
+			skipWhitespaces(0)
+			if i == len(c) {
+				break
+			}
+
+			j, quoted := tryParseAttributeValue()
+			if j == i {
+				break
+			}
+			_ = quoted
+			i = j
+		}
+
+		if i == len(c) {
+			h.condition = 7
+			h.append(c)
+			return h
+		}
+
+		if c[i] == '/' {
+			i++
+			if i == len(c) || c[i] != '>' {
+				return nil
+			}
+			i++
+			h.condition = 7
+			h.append(c)
+			return h
+		}
+
+		if c[i] == '>' {
+			i++
+			_, nc := skipPrefixSpaces(c[i:], -1)
+			if len(nc) == 0 || nc[0] == '\n' {
+				h.condition = 7
+				h.append(c)
+				return h
+			}
+		}
+
+		return nil
+
+	}
+	return nil
 }
 
 func tryParseLinkReferenceDefinition(c []rune) *LinkReferenceDefinition {

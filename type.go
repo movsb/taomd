@@ -61,6 +61,12 @@ func (p *Paragraph) AddLine(s []rune) bool {
 		// A link reference definition cannot interrupt a paragraph.
 		p.texts = append(p.texts, trimLeft(string(s)))
 		return true
+	case *HtmlBlock:
+		// HTML blocks of type 7 cannot interrupt a paragraph
+		if typed.condition == 7 {
+			p.texts = append(p.texts, trimLeft(string(s)))
+			return true
+		}
 	}
 
 	return false

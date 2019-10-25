@@ -1,6 +1,8 @@
 package main
 
-import "strings"
+import (
+	"strings"
+)
 
 type Blocker interface {
 	AddLine(s []rune) bool
@@ -35,6 +37,68 @@ func (doc *Document) refLink(label string, link *Link, enclosed bool) bool {
 	}
 	link.Link = ref.Destination
 	link.Title = ref.Title
+	return true
+}
+
+// An HTML block is a group of lines that is treated as raw HTML (and will not be escaped in HTML output).
+type HtmlBlock struct {
+	Lines [][]rune
+
+	condition int
+	closed    bool
+}
+
+func (hb *HtmlBlock) append(c []rune) {
+	hb.Lines = append(hb.Lines, c)
+}
+
+func (hb *HtmlBlock) AddLine(c []rune) bool {
+	if hb.closed {
+		return false
+	}
+
+	switch hb.condition {
+	case 1:
+		hb.append(c)
+		lc := strings.ToLower(string(c))
+		if strings.Contains(lc, "</script>") || strings.Contains(lc, "</pre>") || strings.Contains(lc, "</style>") {
+			hb.closed = true
+		}
+	case 2:
+		hb.append(c)
+		if strings.Contains(string(c), "-->") {
+			hb.closed = true
+		}
+	case 3:
+		hb.append(c)
+		if strings.Index(string(c), "?>") != -1 {
+			hb.closed = true
+		}
+	case 4:
+		hb.append(c)
+		if strings.Contains(string(c), ">") {
+			hb.closed = true
+		}
+	case 5:
+		hb.append(c)
+		if strings.Contains(string(c), "]]>") {
+			hb.closed = true
+		}
+	case 6:
+		_, nc := skipPrefixSpaces(c, -1)
+		if len(nc) <= 1 {
+			hb.closed = true
+		} else {
+			hb.append(c)
+		}
+	case 7:
+		_, nc := skipPrefixSpaces(c, -1)
+		if len(nc) <= 1 {
+			hb.closed = true
+		} else {
+			hb.append(c)
+		}
+	}
 	return true
 }
 
