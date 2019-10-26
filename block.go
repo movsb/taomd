@@ -370,12 +370,15 @@ type CodeBlock struct {
 	// language of the code sample, and rendered in the class attribute of the code tag.
 	Lang string
 
+	// Custom: Info = Lang + Args
+	Args string
+
 	// The content of the code block consists of all subsequent lines
 	lines []string
 
 	// A code fence is a sequence of at least three consecutive backtick
 	// characters (`) or tildes (~). (Tildes and backticks cannot be mixed.)
-	fenceStart rune
+	fenceMarker rune
 
 	// A fenced code block begins with a code fence, indented no more than three spaces.
 	// If the leading code fence is indented N spaces, then up to N spaces of indentation
@@ -412,9 +415,9 @@ func (cb *CodeBlock) AddLine(s []rune) bool {
 		// until a closing code fence of the same type as the code block
 		// began with (backticks or tildes), and with at least as many backticks
 		// or tildes as the opening code fence.
-		if len(s) > 0 && s[0] == cb.fenceStart {
+		if len(s) > 0 && s[0] == cb.fenceMarker {
 			n := 0
-			for n < len(s) && s[n] == cb.fenceStart {
+			for n < len(s) && s[n] == cb.fenceMarker {
 				n++
 			}
 			if (n == len(s) || s[n] == '\n') && n >= cb.fenceLength {

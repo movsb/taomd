@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"io"
 	"strings"
+	"unicode"
 )
 
 func skipPrefixSpaces(s []rune, max int) (int, []rune) {
@@ -430,13 +431,15 @@ func tryParseSetextHeadingUnderline(c []rune) ([]rune, *Heading) {
 	return c, nil
 }
 
-func tryParseFencedCodeBlockStart(s []rune, start rune, indent int) *CodeBlock {
+func tryParseFencedCodeBlockStart(c []rune, marker rune, indent int) *CodeBlock {
 	cb := &CodeBlock{}
 	cb.fenceIndent = indent
-	cb.fenceStart = start
+	cb.fenceMarker = marker
 
 	i := 0
-	for i < len(s) && s[i] == start {
+
+	// count markers
+	for i < len(c) && c[i] == marker {
 		i++
 	}
 
@@ -450,30 +453,39 @@ func tryParseFencedCodeBlockStart(s []rune, start rune, indent int) *CodeBlock {
 	// The line with the opening code fence may optionally
 	// contain some text following the code fence;
 	// this is trimmed of leading and trailing whitespace and called the info string.
-	infoStart := i
-
-	j := infoStart
-	for j < len(s) && s[j] != '\n' {
-		j++
+	s := []rune{}
+	for i < len(c) {
+		switch c[i] {
+		case '\\':
+			if r, ok := parseEscape(c[i:]); ok {
+				s = append(s, r)
+				i += 2
+			} else {
+				s = append(s, '\\')
+				i++
+			}
+		default:
+			s = append(s, c[i])
+			i++
+		}
 	}
-
-	// eof
-	if j == len(s) {
-		return cb
-	}
-
-	// j is at '\n'
-	j++
-	infoEnd := j
-
-	info := strings.TrimSpace(string(s[infoStart:infoEnd]))
+	info := strings.TrimSpace(string(s))
 
 	// If the info string comes after a backtick fence, it may not contain any backtick characters.
-	if start == '`' && strings.IndexByte(info, byte('`')) != -1 {
+	// The reason for this restriction is that otherwise some inline code would be
+	// incorrectly interpreted as the beginning of a fenced code block.
+	if marker == '`' && strings.IndexByte(info, byte('`')) != -1 {
 		return nil
 	}
 
 	cb.Info = info
+
+	if p := strings.IndexFunc(info, unicode.IsSpace); p != -1 {
+		cb.Lang = info[:p]
+		cb.Args = info[p:]
+	} else {
+		cb.Lang = info
+	}
 
 	return cb
 }
@@ -1073,12 +1085,14 @@ func parseLinkDestination(c []rune) ([]rune, string, bool) {
 		i = 0
 		for i < len(c) && c[i] != '>' && c[i] != '\n' {
 			if c[i] == '\\' {
-				if j := i + 1; j < len(c) && c[j] == '>' {
-					dest = append(dest, '>')
-					i++ // skip \
-					i++ // skip >
-					continue
+				if r, ok := parseEscape(c[i:]); ok {
+					dest = append(dest, r)
+					i += 2
+				} else {
+					dest = append(dest, '\\')
+					i++
 				}
+				continue
 			}
 			dest = append(dest, c[i])
 			i++
@@ -1135,10 +1149,22 @@ func parseLinkTitle(c []rune) ([]rune, string, bool) {
 		return nil, "", false
 	}
 
-	start := 1
 	i := 1
 
+	dest := []rune{}
+
 	for i < len(c) && (c[i] != marker && !(marker == '(' && c[i] == ')')) {
+		if c[i] == '\\' {
+			if r, ok := parseEscape(c[i:]); ok {
+				dest = append(dest, r)
+				i += 2
+			} else {
+				dest = append(dest, '\\')
+				i++
+			}
+			continue
+		}
+		dest = append(dest, c[i])
 		i++
 	}
 
@@ -1146,7 +1172,7 @@ func parseLinkTitle(c []rune) ([]rune, string, bool) {
 		return nil, "", false
 	}
 
-	title := string(c[start:i])
+	title := string(dest)
 
 	i++ // skip marker
 
