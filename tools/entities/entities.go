@@ -31,16 +31,29 @@ func main() {
 	}
 	sort.Strings(sortedKeys)
 
-	fmt.Println("package main")
-	fmt.Println()
-	fmt.Println("var htmlEntities = map[string]rune {")
+	s1 := "var htmlEntities1 = map[string]rune {"
+	s2 := "var htmlEntities2 = map[string][2]rune {"
 
 	for _, key := range sortedKeys {
+		if key[len(key)-1] != ';' {
+			continue
+		}
 		entity := entities[key]
-		codepoint := entity.Codepoints[0]
-		quotedName := `"` + key + `":`
-		fmt.Printf("\t%-20s %d,\n", quotedName, codepoint)
+		quotedName := "`" + key[1:len(key)-1] + "`:"
+		codepoints := entity.Codepoints
+		switch len(codepoints) {
+		case 1:
+			s1 += fmt.Sprintf("%s%d,", quotedName, codepoints[0])
+		case 2:
+			s2 += fmt.Sprintf("%s{%d,%d},", quotedName, codepoints[0], codepoints[1])
+		}
 	}
 
-	fmt.Println("}")
+	s1 += "}"
+	s2 += "}"
+
+	fmt.Printf("package main\n\n")
+	fmt.Println(s1)
+	fmt.Println(s2)
+	fmt.Println()
 }

@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 func skipPrefixSpaces(s []rune, max int) (int, []rune) {
@@ -464,6 +465,22 @@ func tryParseFencedCodeBlockStart(c []rune, marker rune, indent int) *CodeBlock 
 				s = append(s, '\\')
 				i++
 			}
+		case '&':
+			if nc, cp1, cp2, ok := tryParseHtmlEntity(c[i:]); ok {
+				i = 0
+				c = nc
+				if cp1 == 0 {
+					cp1 = utf8.RuneError
+				}
+				r := []rune{cp1}
+				if cp2 != 0 {
+					r = append(r, cp2)
+				}
+				s = append(s, r...)
+			} else {
+				s = append(s, '&')
+				i++
+			}
 		default:
 			s = append(s, c[i])
 			i++
@@ -780,14 +797,18 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 			})
 			i = j
 		case '&':
-			if nc, entity, ok := tryParseHtmlEntity(c[i:]); ok {
+			if nc, cp1, cp2, ok := tryParseHtmlEntity(c[i:]); ok {
 				i = 0
 				c = nc
-				if entity == 0 {
-					entity = 0xFFFD
+				if cp1 == 0 {
+					cp1 = utf8.RuneError
+				}
+				r := []rune{cp1}
+				if cp2 != 0 {
+					r = append(r, cp2)
 				}
 				appendText(&Text{
-					Text: string(entity),
+					Text: string(r),
 				})
 				continue
 			}
@@ -1084,7 +1105,8 @@ func parseLinkDestination(c []rune) ([]rune, string, bool) {
 		c = c[1:]
 		i = 0
 		for i < len(c) && c[i] != '>' && c[i] != '\n' {
-			if c[i] == '\\' {
+			switch c[i] {
+			case '\\':
 				if r, ok := parseEscape(c[i:]); ok {
 					dest = append(dest, r)
 					i += 2
@@ -1092,10 +1114,26 @@ func parseLinkDestination(c []rune) ([]rune, string, bool) {
 					dest = append(dest, '\\')
 					i++
 				}
-				continue
+			case '&':
+				if nc, cp1, cp2, ok := tryParseHtmlEntity(c[i:]); ok {
+					i = 0
+					c = nc
+					if cp1 == 0 {
+						cp1 = utf8.RuneError
+					}
+					r := []rune{cp1}
+					if cp2 != 0 {
+						r = append(r, cp2)
+					}
+					dest = append(dest, r...)
+				} else {
+					dest = append(dest, '&')
+					i++
+				}
+			default:
+				dest = append(dest, c[i])
+				i++
 			}
-			dest = append(dest, c[i])
-			i++
 		}
 		if i == len(c) || c[i] != '>' {
 			return nil, "", false
@@ -1129,6 +1167,22 @@ func parseLinkDestination(c []rune) ([]rune, string, bool) {
 				}
 				dest = append(dest, '\\')
 				i++
+			case '&':
+				if nc, cp1, cp2, ok := tryParseHtmlEntity(c[i:]); ok {
+					i = 0
+					c = nc
+					if cp1 == 0 {
+						cp1 = utf8.RuneError
+					}
+					r := []rune{cp1}
+					if cp2 != 0 {
+						r = append(r, cp2)
+					}
+					dest = append(dest, r...)
+				} else {
+					dest = append(dest, '&')
+					i++
+				}
 			}
 		}
 	}
@@ -1154,7 +1208,8 @@ func parseLinkTitle(c []rune) ([]rune, string, bool) {
 	dest := []rune{}
 
 	for i < len(c) && (c[i] != marker && !(marker == '(' && c[i] == ')')) {
-		if c[i] == '\\' {
+		switch c[i] {
+		case '\\':
 			if r, ok := parseEscape(c[i:]); ok {
 				dest = append(dest, r)
 				i += 2
@@ -1162,10 +1217,26 @@ func parseLinkTitle(c []rune) ([]rune, string, bool) {
 				dest = append(dest, '\\')
 				i++
 			}
-			continue
+		case '&':
+			if nc, cp1, cp2, ok := tryParseHtmlEntity(c[i:]); ok {
+				i = 0
+				c = nc
+				if cp1 == 0 {
+					cp1 = utf8.RuneError
+				}
+				r := []rune{cp1}
+				if cp2 != 0 {
+					r = append(r, cp2)
+				}
+				dest = append(dest, r...)
+			} else {
+				dest = append(dest, '&')
+				i++
+			}
+		default:
+			dest = append(dest, c[i])
+			i++
 		}
-		dest = append(dest, c[i])
-		i++
 	}
 
 	if i == len(c) {
@@ -1406,15 +1477,16 @@ func isWahitespace(r rune) bool {
 	return r == ' ' || r == '\t' || r == '\n'
 }
 
-func tryParseHtmlEntity(c []rune) ([]rune, rune, bool) {
+// Don't use html.UnescapeString since it will use ReplacementChar.
+func tryParseHtmlEntity(c []rune) (remains []rune, first rune, second rune, oook bool) {
 	i := 0
 	if len(c) < 1 || c[i] != '&' {
-		return c, 0, false
+		return
 	}
 
 	i++
 	if i == len(c) {
-		return c, 0, false
+		return
 	}
 
 	switch c[i] {
@@ -1423,17 +1495,26 @@ func tryParseHtmlEntity(c []rune) ([]rune, rune, bool) {
 		for j < len(c) && isAlNum(c[j]) {
 			j++
 		}
-		if j < len(c) && c[j] == ';' {
-			j++ // after ';'
+		if j == len(c) || c[j] != ';' {
+			return
 		}
-		if codepoint, ok := htmlEntities[string(c[0:j])]; ok {
-			return c[j:], codepoint, true
+
+		j++ // after ';'
+
+		name := string(c[1 : j-1])
+
+		if codepoint, ok := htmlEntities1[name]; ok {
+			return c[j:], codepoint, 0, true
 		}
-		return c, 0, false
+		if codepoints, ok := htmlEntities2[name]; ok {
+			return c[j:], codepoints[0], codepoints[1], true
+		}
+
+		return
 	case '#':
 		i++
 		if i == len(c) {
-			return c, 0, false
+			return
 		}
 		switch c[i] {
 		default:
@@ -1445,13 +1526,13 @@ func tryParseHtmlEntity(c []rune) ([]rune, rune, bool) {
 				j++
 			}
 			if j == i || j-i > 7 {
-				return c, 0, false
+				return
 			}
 			if j == len(c) || c[j] != ';' {
-				return c, 0, false
+				return
 			}
 			j++
-			return c[j:], rune(n), true
+			return c[j:], rune(n), 0, true
 		case 'x', 'X':
 			i++
 			j := i
@@ -1462,20 +1543,31 @@ func tryParseHtmlEntity(c []rune) ([]rune, rune, bool) {
 				case '0' <= c[j] && c[j] <= '9':
 					n += int(c[j]) - '0'
 				case 'a' <= c[j] && c[j] <= 'f':
-					n += int(c[j]) - 'a'
+					n += int(c[j]) - 'a' + 10
 				case 'A' <= c[j] && c[j] <= 'F':
-					n += int(c[j]) - 'A'
+					n += int(c[j]) - 'A' + 10
 				}
 				j++
 			}
 			if j == i || j-i > 6 {
-				return c, 0, false
+				return
 			}
 			if j == len(c) || c[j] != ';' {
-				return c, 0, false
+				return
 			}
 			j++
-			return c[j:], rune(n), true
+
+			buf := make([]byte, 4)
+			w := utf8.EncodeRune(buf, rune(n))
+			rs := []rune(string(buf[:w]))
+
+			first = rs[0]
+			second = 0
+			if len(rs) > 1 {
+				second = rs[1]
+			}
+
+			return c[j:], first, second, true
 		}
 	}
 }
