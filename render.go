@@ -19,6 +19,7 @@ func render(doc *Document) string {
 func escapeAttr(s string) string {
 	s = strings.ReplaceAll(s, "&", "&amp;")
 	s = strings.ReplaceAll(s, " ", "%20")
+	s = strings.ReplaceAll(s, "`", "%60")
 	s = strings.ReplaceAll(s, "[", "%5B")
 	s = strings.ReplaceAll(s, "\\", "%5C")
 	s = strings.ReplaceAll(s, "\"", "%22")

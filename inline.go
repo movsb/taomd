@@ -1,6 +1,9 @@
 package main
 
-import "container/list"
+import (
+	"container/list"
+	"strings"
+)
 
 type _Inliner interface {
 	parseInlines()
@@ -182,6 +185,41 @@ func (d *Delimiter) canCloseEmphasis() bool {
 
 func (d *Delimiter) isStrong() bool {
 	return d.text == "**" || d.text == "__"
+}
+
+// A CodeSpan begins with a backtick string and ends with a backtick string of equal length.
+type CodeSpan struct {
+	text string
+}
+
+func (s *CodeSpan) String() string {
+	text := s.text
+
+	// First, line endings are converted to spaces.
+	if strings.HasSuffix(text, "\n") {
+		text = text[:len(text)-1]
+		text += " "
+	}
+
+	// If the resulting string both begins and ends with a space character,
+	// but does not consist entirely of space characters,
+	// a single space character is removed from the front and back.
+	if n := len(text); n >= 2 {
+		if text[0] == ' ' && text[n-1] == ' ' {
+			allAreSpaces := true
+			for j := 1; j < n-1; j++ {
+				if text[j] != ' ' {
+					allAreSpaces = false
+					break
+				}
+			}
+			if !allAreSpaces {
+				text = text[1 : n-1]
+			}
+		}
+	}
+
+	return "<code>" + escapeHTMLString(text) + "</code>"
 }
 
 type Link struct {

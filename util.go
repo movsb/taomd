@@ -142,7 +142,7 @@ func (ls *LineScanner) PutBack(s []rune) {
 
 var htmlBlockStartCondition6TagNames = map[string]byte{
 	"address":    1,
-	"garticle":   1,
+	"article":    1,
 	"aside":      1,
 	"base":       1,
 	"basefont":   1,

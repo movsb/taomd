@@ -90,37 +90,3 @@ type Heading struct {
 func (h *Heading) AddLine(s []rune) bool {
 	return false
 }
-
-type CodeSpan struct {
-	text string
-}
-
-func (s *CodeSpan) String() string {
-	text := s.text
-
-	// First, line endings are converted to spaces.
-	if strings.HasSuffix(text, "\n") {
-		text = text[:len(text)-1]
-		text += " "
-	}
-
-	// If the resulting string both begins and ends with a space character,
-	// but does not consist entirely of space characters,
-	// a single space character is removed from the front and back.
-	if n := len(text); n >= 2 {
-		if text[0] == ' ' && text[n-1] == ' ' {
-			allAreSpaces := true
-			for j := 1; j < n-1; j++ {
-				if text[j] != ' ' {
-					allAreSpaces = false
-					break
-				}
-			}
-			if !allAreSpaces {
-				text = text[1 : n-1]
-			}
-		}
-	}
-
-	return "<code>" + escapeHTMLString(text) + "</code>"
-}

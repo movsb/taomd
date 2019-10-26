@@ -789,11 +789,11 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 				continue
 			}
 			j := i
-			for ; j < len(c) && c[j] == '`'; j++ {
+			for j < len(c) && c[j] == '`' {
 				j++
 			}
 			appendText(&Text{
-				Text: strings.Repeat("`", j-i+1),
+				Text: strings.Repeat("`", j-i),
 			})
 			i = j
 		case '&':
