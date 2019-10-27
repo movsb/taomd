@@ -49,7 +49,7 @@ func toInline(inline Inline) string {
 		}
 		s += ">"
 		for _, inline := range it.Inlines {
-			s += escapeText(inline.Text)
+			s += toInline(inline)
 		}
 		s += "</a>"
 	case *Image:

@@ -189,10 +189,11 @@ func (s *CodeSpan) String() string {
 }
 
 type Link struct {
-	Inlines []*Text
+	Inlines []Inline
 	Link    string
 	Title   string
 	Text    string
+	ref     string
 }
 
 func (l *Link) TextContent() string {
@@ -201,7 +202,7 @@ func (l *Link) TextContent() string {
 
 type Image struct {
 	Link    string
-	inlines []*Text
+	Inlines []Inline
 	Alt     string
 	Title   string
 }

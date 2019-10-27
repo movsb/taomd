@@ -657,101 +657,11 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 			appendDelimiter("[")
 			i++
 		case ']':
-			appendDelimiter("")
+			appendDelimiter("]")
 			i++
-			var opener *Delimiter
-			var openerElement *list.Element
-			for e := delimiters.Front(); e != nil; e = e.Next() {
-				d := e.Value.(*Delimiter)
-				if d.text == "[" || d.text == "![" {
-					openerElement = e
-					opener = d
-					break
-				}
-			}
-			if opener == nil {
-				appendDelimiter("")
-				appendText(&Text{
-					Text: "]",
-				})
-				continue
-			}
-			if !opener.active {
-				delimiters.Remove(openerElement)
-				appendDelimiter("")
-				appendText(&Text{
-					Text: "]",
-				})
-				continue
-			}
-
-			var link Link
-			var image Image
-			var nc []rune
-			var ok bool
-
-			{
-				t := []*Text{}
-				for e := opener.textElement.Prev(); e != nil; e = e.Prev() {
-					t = append(t, e.Value.(*Text))
-				}
-				link.Text = textOnlyFromInlines(t)
-			}
-
-			if opener.text == "[" {
-				nc, ok = parseLink(c[i:], &link)
-			} else {
-				nc, ok = parseImage(c[i:], &image)
-			}
-
-			if !ok {
-				delimiters.Remove(openerElement)
-				appendDelimiter("")
-				appendText(&Text{
-					Text: "]",
-				})
-				continue
-			}
-
-			c = nc
-			i = 0
-
-			if opener.text == "[" {
-				for e := opener.textElement.Prev(); e != nil; {
-					link.Inlines = append(link.Inlines, e.Value.(*Text))
-					pe := e.Prev()
-					texts.Remove(e)
-					e = pe
-				}
-			} else {
-				for e := opener.textElement.Prev(); e != nil; {
-					image.inlines = append(image.inlines, e.Value.(*Text))
-					pe := e.Prev()
-					texts.Remove(e)
-					e = pe
-				}
-				image.Alt = textOnlyFromInlines(image.inlines)
-			}
-
-			texts.Remove(opener.textElement)
-
-			// TODO process inlines for [ ]
-
-			if opener.text == "[" {
-				for e := openerElement.Next(); e != nil; e = e.Next() {
-					d := e.Value.(*Delimiter)
-					if d.text == "[" {
-						d.active = false
-					}
-				}
-			}
-
-			delimiters.Remove(openerElement)
-
-			if opener.text == "[" {
-				appendText(&link)
-			} else {
-				appendText(&image)
+			if nc, ok := parseRightBracket(texts, delimiters, c[i:]); ok {
+				c = nc
+				i = 0
 			}
 		case '\\':
 			if j := i + 1; j < len(c) {
@@ -836,10 +746,14 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 	return texts, delimiters
 }
 
-func parseInlines(raw string) []Inline {
+func parseInlines(raw string) (inlines []Inline) {
 	texts, delimiters := parseInlinesToDeimiters(raw)
 	parseLineBreaks(texts)
-	return parseEmphases(texts, delimiters, nil)
+	parseEmphases(texts, delimiters, nil)
+	for e := texts.Back(); e != nil; e = e.Prev() {
+		inlines = append(inlines, e.Value)
+	}
+	return
 }
 
 func parseLineBreaks(texts *list.List) {
@@ -880,7 +794,105 @@ func parseLineBreaks(texts *list.List) {
 	}
 }
 
-func parseEmphases(texts *list.List, delimiters *list.List, bottom *list.Element) []Inline {
+func parseRightBracket(texts *list.List, delimiters *list.List, c []rune) ([]rune, bool) {
+	toDelimiter := func(v *list.Element) *Delimiter {
+		return v.Value.(*Delimiter)
+	}
+
+	var (
+		i             int
+		opener        *Delimiter
+		openerElement *list.Element
+	)
+
+	for openerElement = delimiters.Front().Next(); openerElement != nil; {
+		opener = toDelimiter(openerElement)
+		if opener.text == "[" || opener.text == "![" {
+			break
+		}
+		openerElement = openerElement.Next()
+	}
+
+	if opener == nil {
+		return nil, false
+	}
+
+	if !opener.active {
+		delimiters.Remove(openerElement)
+		return nil, false
+	}
+
+	var link Link
+	var image Image
+	var nc []rune
+	var ok bool
+
+	if opener.text == "[" {
+		nc, ok = parseLink(c[i:], &link)
+	} else {
+		nc, ok = parseImage(c[i:], &image)
+	}
+
+	if !ok {
+		delimiters.Remove(openerElement)
+		return nil, false
+	}
+
+	if link.ref != "" {
+		if !gdoc.refLink(link.ref, &link, true) {
+			return nil, false
+		}
+	}
+
+	c = nc
+	i = 0
+
+	if opener.text == "[" {
+		for e := openerElement.Next(); e != nil; {
+			d := toDelimiter(e)
+			if d.text == "[" {
+				d.active = false
+			}
+			e = e.Next()
+		}
+	}
+
+	// remove "]" before processing emphases
+	texts.Remove(texts.Front())
+	delimiters.Remove(delimiters.Front())
+
+	if opener.text == "[" {
+		parseEmphases(texts, delimiters, openerElement)
+		for e := opener.textElement.Prev(); e != nil; {
+			link.Inlines = append(link.Inlines, e.Value)
+			e = e.Prev()
+		}
+		texts.InsertAfter(&link, opener.textElement)
+	} else {
+		parseEmphases(texts, delimiters, openerElement)
+		for e := opener.textElement.Prev(); e != nil; {
+			image.Inlines = append(image.Inlines, e.Value)
+			e = e.Prev()
+		}
+		texts.InsertAfter(&image, opener.textElement)
+	}
+
+	// remove from "["
+	for e := opener.textElement; e != nil; {
+		next := e.Prev()
+		texts.Remove(e)
+		e = next
+	}
+	for e := openerElement; e != nil; {
+		next := e.Prev()
+		delimiters.Remove(e)
+		e = next
+	}
+
+	return c, true
+}
+
+func parseEmphases(texts *list.List, delimiters *list.List, bottom *list.Element) {
 	toDelimiter := func(v *list.Element) *Delimiter {
 		return v.Value.(*Delimiter)
 	}
@@ -978,20 +990,6 @@ func parseEmphases(texts *list.List, delimiters *list.List, bottom *list.Element
 			closerElement = next
 		}
 	}
-
-	var inlines []Inline
-	for t := texts.Back(); t != nil; t = t.Prev() {
-		inlines = append(inlines, t.Value)
-	}
-	return inlines
-}
-
-func textOnlyFromInlines(inlines []*Text) string {
-	s := ""
-	for _, inline := range inlines {
-		s += inline.Text
-	}
-	return s
 }
 
 func parseEscape(c []rune) (rune, bool) {
@@ -1019,10 +1017,8 @@ func parseLink(c []rune, link *Link) ([]rune, bool) {
 
 	// shortcut reference link
 	if i == len(c) {
-		if gdoc.refLink(link.Text, link, false) {
-			return c[i:], true
-		}
-		return nil, false
+		link.ref = "[" + link.Text + "]"
+		return c[i:], true
 	}
 
 	switch c[i] {
@@ -1034,9 +1030,7 @@ func parseLink(c []rune, link *Link) ([]rune, bool) {
 		if label == "[]" {
 			label = "[" + link.Text + "]"
 		}
-		if !gdoc.refLink(label, link, true) {
-			return nil, false
-		}
+		link.ref = label
 		return nc, true
 	}
 
@@ -1467,7 +1461,7 @@ func parseAutoLink(c []rune) ([]rune, *Link, bool) {
 	full := string(c[schemeStart:i])
 	link := &Link{
 		Link: full,
-		Inlines: []*Text{
+		Inlines: []Inline{
 			&Text{
 				Text: full,
 			},
