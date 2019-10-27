@@ -127,6 +127,20 @@ func (d *Delimiter) isStrong() bool {
 	return d.text == "**" || d.text == "__"
 }
 
+// since delimiters in d are the same, from what end to remove is ignored.
+func (d *Delimiter) consume(count int) int {
+	n := len(d.text)
+	if count > n {
+		panic("won't happen")
+	}
+
+	d.text = d.text[0 : n-count]
+	t := d.textElement.Value.(*Text)
+	t.Text = t.Text[0 : n-count]
+
+	return len(d.text)
+}
+
 // A CodeSpan begins with a backtick string and ends with a backtick string of equal length.
 type CodeSpan struct {
 	text string

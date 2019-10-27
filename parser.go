@@ -881,87 +881,102 @@ func parseLineBreaks(texts *list.List) {
 }
 
 func parseEmphases(texts *list.List, delimiters *list.List, bottom *list.Element) []Inline {
+	toDelimiter := func(v *list.Element) *Delimiter {
+		return v.Value.(*Delimiter)
+	}
+
+	var (
+		opener        *Delimiter
+		closer        *Delimiter
+		openerElement *list.Element
+		closerElement *list.Element
+	)
+
+	// first set closerElement above bottom
 	if bottom == nil {
-		bottom = delimiters.Back()
-	}
-	openersBottom := map[string]*list.Element{
-		"*":  bottom,
-		"_":  bottom,
-		"**": bottom,
-		"__": bottom,
+		closerElement = delimiters.Back() // may be nil, if empty.
+	} else {
+		closerElement = bottom.Prev() // may be nil, if at top.
 	}
 
-	var closer *list.Element
-
-	closer = bottom
-
-	for {
-		var cd *Delimiter
-
-		for ; closer != nil; closer = closer.Prev() {
-			cd = closer.Value.(*Delimiter)
-			if cd.canCloseEmphasis() {
-				break
-			}
-		}
-
-		if closer == nil {
-			break
-		}
-
-		var opener *list.Element
-		var od *Delimiter
-
-		for opener = closer.Next(); opener != nil; opener = opener.Next() {
-			od = opener.Value.(*Delimiter)
-			if od.canOpenEmphasis() && od.text == closer.Value.(*Delimiter).text {
-				break
-			}
-		}
-
-		if opener == nil {
-			openersBottom[cd.text] = closer
-			next := closer.Prev()
-			if !cd.canOpenEmphasis() {
-				delimiters.Remove(closer)
-			}
-			closer = next
+	for closerElement != nil {
+		closer = toDelimiter(closerElement)
+		if !closer.canCloseEmphasis() {
+			// Move current_position forward in the delimiter stack (if needed)
+			// until we find the first potential closer with delimiter * or _.
+			closerElement = closerElement.Prev()
 			continue
 		}
 
-		if !od.canOpenEmphasis() {
-			e := closer
-			closer = closer.Prev()
+		// Now, look back in the stack (staying above stack_bottom and the openers_bottom
+		// for this delimiter type) for the first matching potential opener (“matching” means same delimiter).
+		for openerElement = closerElement.Next(); openerElement != bottom; openerElement = openerElement.Next() {
+			opener = toDelimiter(openerElement)
+			if opener.canOpenEmphasis() && opener.text[0] == closer.text[0] /* not full match */ {
+				break
+			}
+		}
+
+		// If none is found
+		if openerElement == bottom {
+			next := closerElement.Prev()
+
+			// If the closer at current_position is not a potential opener,
+			// remove it from the delimiter stack (since we know it can’t be a closer either).
+			if !closer.canOpenEmphasis() {
+				delimiters.Remove(closerElement)
+			}
+
+			// Advance current_position to the next element in the stack.
+			closerElement = next
+			continue
+		}
+
+		// If one is found
+
+		// Figure out whether we have emphasis or strong emphasis:
+		// if both closer and opener spans have length >= 2, we have strong, otherwise regular.
+		n := 1 // not strong by default
+		if opener.isStrong() && closer.isStrong() {
+			n = 2
+		}
+
+		// Insert an emph or strong emph node accordingly, after the text node corresponding to the opener.
+		emphasis := &Emphasis{
+			Delimiter: string(opener.text[0:n]),
+		}
+
+		// texts between opener and closer are contents of emphasis.
+		for e := opener.textElement.Prev(); e != nil && e != closer.textElement; {
+			emphasis.Inlines = append(emphasis.Inlines, e.Value)
+			next := e.Prev()
+			texts.Remove(e)
+			e = next
+		}
+		texts.InsertBefore(emphasis, opener.textElement)
+
+		// Remove any delimiters between the opener and closer from the delimiter stack.
+		for e := openerElement.Prev(); e != nil && e != closerElement; {
+			next := e.Prev()
 			delimiters.Remove(e)
-			continue
+			e = next
 		}
 
-		e := &Emphasis{}
-		e.Delimiter = od.text
-		for t := od.textElement.Prev(); t != cd.textElement; {
-			e.Inlines = append(e.Inlines, t.Value)
-			t = t.Prev()
+		// Remove 1 (for regular emph) or 2 (for strong emph) delimiters from the opening and closing text nodes.
+		// If they become empty as a result, remove them and remove the corresponding element of the delimiter stack.
+		// If the closing node is removed, reset current_position to the next element in the stack.
+		openerEmpty := opener.consume(n) == 0
+		closerEmpty := closer.consume(n) == 0
+		if openerEmpty {
+			delimiters.Remove(openerElement)
+			texts.Remove(opener.textElement)
 		}
-		texts.InsertAfter(e, od.textElement)
-
-		for t := od.textElement; t != nil; {
-			next := t.Prev()
-			texts.Remove(t)
-			if t == closer.Value.(*Delimiter).textElement {
-				break
-			}
-			t = next
+		if closerEmpty {
+			next := closerElement.Prev()
+			delimiters.Remove(closerElement)
+			texts.Remove(closer.textElement)
+			closerElement = next
 		}
-
-		closerPrev := closer.Prev()
-
-		for d := opener; d != closerPrev; {
-			pd := d.Prev()
-			delimiters.Remove(d)
-			d = pd
-		}
-
-		closer = closerPrev
 	}
 
 	var inlines []Inline
