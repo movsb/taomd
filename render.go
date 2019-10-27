@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"reflect"
 	"strings"
 )
@@ -16,23 +17,21 @@ func render(doc *Document) string {
 	return s
 }
 
-func escapeAttr(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, " ", "%20")
-	s = strings.ReplaceAll(s, "`", "%60")
-	s = strings.ReplaceAll(s, "[", "%5B")
-	s = strings.ReplaceAll(s, "\\", "%5C")
-	s = strings.ReplaceAll(s, "\"", "%22")
-	s = strings.ReplaceAll(s, "\xc2\xa0", "%C2%A0")
-	return s
+func escapeURL(s string) string {
+	u, err := url.Parse(s)
+	if err != nil {
+		return escapeText(s)
+	}
+	return u.String()
 }
 
 func escapeText(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "\"", "&quot;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	return s
+	return strings.NewReplacer(
+		`&`, "&amp;",
+		`"`, "&quot;",
+		`<`, "&lt;",
+		`>`, "&gt;",
+	).Replace(s)
 }
 
 func toInline(inline Inline) string {
@@ -43,9 +42,9 @@ func toInline(inline Inline) string {
 	case *Text:
 		s += escapeText(it.Text)
 	case *Link:
-		s += fmt.Sprintf(`<a href="%s"`, escapeAttr(it.Link))
+		s += fmt.Sprintf(`<a href="%s"`, escapeURL(it.Link))
 		if it.Title != "" {
-			s += fmt.Sprintf(` title="%s"`, escapeAttr(it.Title))
+			s += fmt.Sprintf(` title="%s"`, escapeText(it.Title))
 		}
 		s += ">"
 		for _, inline := range it.Inlines {
@@ -53,12 +52,12 @@ func toInline(inline Inline) string {
 		}
 		s += "</a>"
 	case *Image:
-		s += fmt.Sprintf(`<img src="%s"`, escapeAttr(it.Link))
+		s += fmt.Sprintf(`<img src="%s"`, escapeURL(it.Link))
 		if it.Alt != "" {
-			s += fmt.Sprintf(` alt="%s"`, escapeAttr(it.Alt))
+			s += fmt.Sprintf(` alt="%s"`, escapeText(it.Alt))
 		}
 		if it.Title != "" {
-			s += fmt.Sprintf(` title="%s"`, escapeAttr(it.Title))
+			s += fmt.Sprintf(` title="%s"`, escapeText(it.Title))
 		}
 		s += " />"
 	case *Emphasis:
@@ -88,7 +87,7 @@ func toInline(inline Inline) string {
 	case *SoftLineBreak:
 		s += "\n"
 	case *CodeSpan:
-		s += it.String()
+		s += "<code>" + escapeText(it.TextContent()) + "</code>"
 	case *HtmlTag:
 		s += it.Tag
 	}

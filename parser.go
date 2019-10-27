@@ -137,8 +137,9 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 
 		if s[0] == '[' {
 			if link := tryParseLinkReferenceDefinition(s); link != nil {
-				if _, ok := gdoc.links[link.Label]; !ok {
-					gdoc.links[link.Label] = link
+				label := strings.ToLower(link.Label)
+				if _, ok := gdoc.links[label]; !ok {
+					gdoc.links[label] = link
 				}
 				return true
 			}
@@ -170,29 +171,6 @@ type Parser struct {
 
 func isSpace(c rune) bool {
 	return c == ' '
-}
-
-func escapeHTML(r rune) []rune {
-	switch r {
-	case '"':
-		return []rune("&quot;")
-	case '&':
-		return []rune("&amp;")
-	case '<':
-		return []rune("&lt;")
-	case '>':
-		return []rune("&gt;")
-	}
-	return []rune{r}
-}
-
-func escapeHTMLString(s string) string {
-	return strings.NewReplacer(
-		`"`, "&quot;",
-		`&`, "&amp;",
-		`<`, "&lt;",
-		`>`, "&gt;",
-	).Replace(s)
 }
 
 var punctuations = map[rune]int{
@@ -806,8 +784,9 @@ func parseRightBracket(texts *list.List, delimiters *list.List, c []rune) ([]run
 	)
 
 	for openerElement = delimiters.Front().Next(); openerElement != nil; {
-		opener = toDelimiter(openerElement)
-		if opener.text == "[" || opener.text == "![" {
+		d := toDelimiter(openerElement)
+		if d.text == "[" || d.text == "![" {
+			opener = d
 			break
 		}
 		openerElement = openerElement.Next()
@@ -838,24 +817,26 @@ func parseRightBracket(texts *list.List, delimiters *list.List, c []rune) ([]run
 		return nil, false
 	}
 
-	if link.ref != "" {
-		if !gdoc.refLink(link.ref, &link, true) {
+	// hack, to get texts betwee "[" and "]", for ref.
+	// TODO remember positions of "[" and "]".
+	if ref := link.ref; ref != "" {
+		if ref == "[]" {
+			ref = ""
+			for e := opener.textElement; e != nil; {
+				if tc, ok := e.Value.(ITextContent); ok {
+					ref += tc.TextContent()
+				}
+				e = e.Prev()
+			}
+		}
+		ref = strings.ToLower(ref)
+		if !gdoc.refLink(ref, &link, true) {
 			return nil, false
 		}
 	}
 
 	c = nc
 	i = 0
-
-	if opener.text == "[" {
-		for e := openerElement.Next(); e != nil; {
-			d := toDelimiter(e)
-			if d.text == "[" {
-				d.active = false
-			}
-			e = e.Next()
-		}
-	}
 
 	// remove "]" before processing emphases
 	texts.Remove(texts.Front())
@@ -867,14 +848,30 @@ func parseRightBracket(texts *list.List, delimiters *list.List, c []rune) ([]run
 			link.Inlines = append(link.Inlines, e.Value)
 			e = e.Prev()
 		}
+		// opener is about to be removed, hence we insert it after (at left) opener.
 		texts.InsertAfter(&link, opener.textElement)
 	} else {
 		parseEmphases(texts, delimiters, openerElement)
 		for e := opener.textElement.Prev(); e != nil; {
-			image.Inlines = append(image.Inlines, e.Value)
+			image.inlines = append(image.inlines, e.Value)
+			if tc, ok := e.Value.(ITextContent); ok {
+				image.Alt += tc.TextContent()
+			}
 			e = e.Prev()
 		}
 		texts.InsertAfter(&image, opener.textElement)
+	}
+
+	// If we have a link (and not an image), we also set all [ delimitersbefore the opening delimiter
+	// to inactive. (This will prevent us from getting links within links.)
+	if opener.text == "[" {
+		for e := openerElement.Next(); e != nil; {
+			d := toDelimiter(e)
+			if d.text == "[" {
+				d.active = false
+			}
+			e = e.Next()
+		}
 	}
 
 	// remove from "["
@@ -1017,7 +1014,7 @@ func parseLink(c []rune, link *Link) ([]rune, bool) {
 
 	// shortcut reference link
 	if i == len(c) {
-		link.ref = "[" + link.Text + "]"
+		link.ref = "[]"
 		return c[i:], true
 	}
 
@@ -1027,14 +1024,13 @@ func parseLink(c []rune, link *Link) ([]rune, bool) {
 		if !ok {
 			return nil, false
 		}
-		if label == "[]" {
-			label = "[" + link.Text + "]"
-		}
 		link.ref = label
 		return nc, true
 	}
 
 	if c[i] != '(' {
+		link.ref = "[]"
+		return c[i:], true
 		return nil, false
 	}
 	i++ // skip '('

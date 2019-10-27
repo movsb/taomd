@@ -158,8 +158,8 @@ type CodeSpan struct {
 	text string
 }
 
-func (s *CodeSpan) String() string {
-	text := s.text
+func (cs *CodeSpan) TextContent() string {
+	text := cs.text
 
 	// First, line endings are converted to spaces.
 	if strings.HasSuffix(text, "\n") {
@@ -185,26 +185,34 @@ func (s *CodeSpan) String() string {
 		}
 	}
 
-	return "<code>" + escapeHTMLString(text) + "</code>"
+	return text
 }
 
 type Link struct {
 	Inlines []Inline
-	Link    string
-	Title   string
-	Text    string
-	ref     string
+
+	Link  string
+	Title string
+
+	ref string
 }
 
 func (l *Link) TextContent() string {
-	return l.Title
+	s := ""
+	for _, inline := range l.Inlines {
+		if tc, ok := inline.(ITextContent); ok {
+			s += tc.TextContent()
+		}
+	}
+	return s
 }
 
 type Image struct {
-	Link    string
-	Inlines []Inline
-	Alt     string
-	Title   string
+	Link  string
+	Alt   string
+	Title string
+
+	inlines []Inline
 }
 
 func (i *Image) TextContent() string {
