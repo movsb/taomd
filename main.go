@@ -66,9 +66,11 @@ func main() {
 	gdoc = parse(strings.NewReader(t.Markdown), t.Example)
 	if h := render(gdoc); h != t.HTML {
 		dumpFail(t.Markdown, t.HTML, h)
+		os.Exit(1)
 	} else {
 		saveTestResults(example)
 		fmt.Println("pass")
+		os.Exit(0)
 	}
 }
 

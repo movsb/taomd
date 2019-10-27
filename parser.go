@@ -671,7 +671,7 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 			}
 			if opener == nil {
 				appendDelimiter("")
-				texts.PushFront(&Text{
+				appendText(&Text{
 					Text: "]",
 				})
 				continue
@@ -679,7 +679,7 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 			if !opener.active {
 				delimiters.Remove(openerElement)
 				appendDelimiter("")
-				texts.PushFront(&Text{
+				appendText(&Text{
 					Text: "]",
 				})
 				continue
@@ -707,7 +707,7 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 			if !ok {
 				delimiters.Remove(openerElement)
 				appendDelimiter("")
-				texts.PushFront(&Text{
+				appendText(&Text{
 					Text: "]",
 				})
 				continue
@@ -717,14 +717,18 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 			i = 0
 
 			if opener.text == "[" {
-				for e := opener.textElement.Prev(); e != nil; e = e.Prev() {
+				for e := opener.textElement.Prev(); e != nil; {
 					link.Inlines = append(link.Inlines, e.Value.(*Text))
+					pe := e.Prev()
 					texts.Remove(e)
+					e = pe
 				}
 			} else {
-				for e := opener.textElement.Prev(); e != nil; e = e.Prev() {
+				for e := opener.textElement.Prev(); e != nil; {
 					image.inlines = append(image.inlines, e.Value.(*Text))
+					pe := e.Prev()
 					texts.Remove(e)
+					e = pe
 				}
 				image.Alt = textOnlyFromInlines(image.inlines)
 			}
@@ -745,9 +749,9 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 			delimiters.Remove(openerElement)
 
 			if opener.text == "[" {
-				texts.PushFront(&link)
+				appendText(&link)
 			} else {
-				texts.PushFront(&image)
+				appendText(&image)
 			}
 		case '\\':
 			if j := i + 1; j < len(c) {
@@ -767,10 +771,10 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 			text = append(text, '\\')
 			i++
 		case '<':
-			if nc, link, ok := parseAutoLink(c); ok {
+			if nc, link, ok := parseAutoLink(c[i:]); ok {
 				c = nc
 				i = 0
-				texts.PushFront(link)
+				appendText(link)
 				continue
 			}
 			if nc, tag := tryParseHtmlTag(c[i:]); tag != nil {
@@ -949,10 +953,15 @@ func parseEmphases(texts *list.List, delimiters *list.List, bottom *list.Element
 			t = next
 		}
 
-		delimiters.Remove(opener)
-		save := closer.Prev()
-		delimiters.Remove(closer)
-		closer = save
+		closerPrev := closer.Prev()
+
+		for d := opener; d != closerPrev; {
+			pd := d.Prev()
+			delimiters.Remove(d)
+			d = pd
+		}
+
+		closer = closerPrev
 	}
 
 	var inlines []Inline

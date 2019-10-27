@@ -3,6 +3,7 @@ package main
 import (
 	"container/list"
 	"strings"
+	"unicode"
 )
 
 type _Inliner interface {
@@ -20,6 +21,10 @@ func textContent(i interface{}) string {
 	if tc, ok := i.(ITextContent); ok {
 		return tc.TextContent()
 	}
+	switch i.(type) {
+	case *SoftLineBreak, *HardLineBreak:
+		return " "
+	}
 	return ""
 }
 
@@ -35,6 +40,41 @@ type Delimiter struct {
 	textElement *list.Element
 	active      bool
 	text        string
+
+	runePrev rune
+	runeNext rune
+}
+
+func (d *Delimiter) prevChar() rune {
+	if d.runePrev == 0 {
+		prev := d.textElement.Next()
+		if prev != nil {
+			prevText := textContent(prev.Value)
+			if prevText == "" {
+				prevText = "p" // dummy. prevText == "" => it is a inline element.
+			}
+			d.runePrev = rune(prevText[len(prevText)-1])
+		} else {
+			d.runePrev = ' '
+		}
+	}
+	return d.runePrev
+}
+
+func (d *Delimiter) nextChar() rune {
+	if d.runeNext == 0 {
+		next := d.textElement.Prev()
+		if next != nil {
+			nextText := textContent(next.Value)
+			if nextText == "" {
+				nextText = "n" // dummy. nextText == "" => it is a inline element.
+			}
+			d.runeNext = rune(nextText[0])
+		} else {
+			d.runeNext = ' '
+		}
+	}
+	return d.runeNext
 }
 
 // A left-flanking delimiter run is a delimiter run that is
@@ -47,48 +87,7 @@ type Delimiter struct {
 //
 // 1 && (2a || 2b)
 func (d *Delimiter) isLeftFlanking() bool {
-	switch d.text[0] {
-	case '*', '_':
-		break
-	default:
-		return false
-	}
-
-	next := d.textElement.Prev()
-	// the end of the line count as Unicode whitespace
-	if next == nil {
-		return false
-	}
-
-	// not followed by Unicode whitespace
-	nextText := textContent(next.Value)
-	if nextText == "" {
-		return false
-	}
-	if nextText[0] == ' ' || nextText[0] == '\n' {
-		return false
-	}
-
-	// not followed by a punctuation character
-	if !isPunctuation(rune(nextText[0])) {
-		return true
-	}
-
-	prev := d.textElement.Next()
-	if prev == nil {
-		return true
-	}
-
-	prevText := textContent(prev.Value)
-	if prevText == "" {
-		return true
-	}
-	lastChar := prevText[len(prevText)-1]
-	if lastChar == ' ' || lastChar == '\n' || isPunctuation(rune(lastChar)) {
-		return true
-	}
-
-	return false
+	return !unicode.IsSpace(d.nextChar()) && (!isPunctuation(d.nextChar()) || (unicode.IsSpace(d.prevChar()) || isPunctuation(d.prevChar())))
 }
 
 // A right-flanking delimiter run is a delimiter run that is
@@ -101,66 +100,7 @@ func (d *Delimiter) isLeftFlanking() bool {
 //
 // 1 && (2a || 2b)
 func (d *Delimiter) isRightFlanking() bool {
-	switch d.text[0] {
-	case '*', '_':
-		break
-	default:
-		return false
-	}
-
-	prev := d.textElement.Next()
-	// the end of the line count as Unicode whitespace
-	if prev == nil {
-		return false
-	}
-
-	// not preceded by Unicode whitespace
-	prevText := textContent(prev.Value)
-	if prevText == "" {
-		return false
-	}
-	lastChar := prevText[len(prevText)-1]
-	if lastChar == ' ' || lastChar == '\n' {
-		return false
-	}
-
-	// not preceded by a punctuation character
-	if !isPunctuation(rune(lastChar)) {
-		return true
-	}
-
-	next := d.textElement.Prev()
-	if next == nil {
-		return true
-	}
-
-	nextText := textContent(next.Value)
-	if nextText == "" {
-		return true
-	}
-	if nextText[0] == ' ' || nextText[0] == '\n' || isPunctuation(rune(nextText[0])) {
-		return true
-	}
-
-	return false
-}
-
-func delimiterPrecedeOrFollowedByPunctuation(d *Delimiter, precede bool) bool {
-	if precede {
-		te := d.textElement.Next()
-		if te == nil {
-			return false
-		}
-		t := textContent(te.Value)
-		return isPunctuation(rune(t[len(t)-1]))
-	} else {
-		te := d.textElement.Prev()
-		if te == nil {
-			return false
-		}
-		t := textContent(te.Value)
-		return isPunctuation(rune(t[0]))
-	}
+	return !unicode.IsSpace(d.prevChar()) && (!isPunctuation(d.prevChar()) || (unicode.IsSpace(d.nextChar()) || isPunctuation(d.nextChar())))
 }
 
 func (d *Delimiter) canOpenEmphasis() bool {
@@ -168,7 +108,7 @@ func (d *Delimiter) canOpenEmphasis() bool {
 	case "*", "**":
 		return d.isLeftFlanking()
 	case "_", "__":
-		return d.isLeftFlanking() && (!d.isRightFlanking() || delimiterPrecedeOrFollowedByPunctuation(d, true))
+		return d.isLeftFlanking() && (!d.isRightFlanking() || isPunctuation(d.prevChar()))
 	}
 	return false
 }
@@ -178,7 +118,7 @@ func (d *Delimiter) canCloseEmphasis() bool {
 	case "*", "**":
 		return d.isRightFlanking()
 	case "_", "__":
-		return d.isRightFlanking() && (!d.isLeftFlanking() || delimiterPrecedeOrFollowedByPunctuation(d, false))
+		return d.isRightFlanking() && (!d.isLeftFlanking() || isPunctuation(d.nextChar()))
 	}
 	return false
 }
