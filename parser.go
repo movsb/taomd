@@ -912,7 +912,7 @@ func parseEmphases(texts *list.List, delimiters *list.List, bottom *list.Element
 		// for this delimiter type) for the first matching potential opener (“matching” means same delimiter).
 		for openerElement = closerElement.Next(); openerElement != bottom; openerElement = openerElement.Next() {
 			opener = toDelimiter(openerElement)
-			if opener.canOpenEmphasis() && opener.text[0] == closer.text[0] /* not full match */ {
+			if opener.canOpenEmphasis() && opener.match(closer) && !opener.oddMatch(closer) {
 				break
 			}
 		}
@@ -937,7 +937,7 @@ func parseEmphases(texts *list.List, delimiters *list.List, bottom *list.Element
 		// Figure out whether we have emphasis or strong emphasis:
 		// if both closer and opener spans have length >= 2, we have strong, otherwise regular.
 		n := 1 // not strong by default
-		if opener.isStrong() && closer.isStrong() {
+		if opener.canBeStrong() && closer.canBeStrong() {
 			n = 2
 		}
 

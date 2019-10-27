@@ -104,27 +104,39 @@ func (d *Delimiter) isRightFlanking() bool {
 }
 
 func (d *Delimiter) canOpenEmphasis() bool {
-	switch d.text {
-	case "*", "**":
+	switch d.text[0] {
+	case '*':
 		return d.isLeftFlanking()
-	case "_", "__":
+	case '_':
 		return d.isLeftFlanking() && (!d.isRightFlanking() || isPunctuation(d.prevChar()))
 	}
 	return false
 }
 
 func (d *Delimiter) canCloseEmphasis() bool {
-	switch d.text {
-	case "*", "**":
+	switch d.text[0] {
+	case '*':
 		return d.isRightFlanking()
-	case "_", "__":
+	case '_':
 		return d.isRightFlanking() && (!d.isLeftFlanking() || isPunctuation(d.nextChar()))
 	}
 	return false
 }
 
-func (d *Delimiter) isStrong() bool {
-	return d.text == "**" || d.text == "__"
+func (d *Delimiter) canBeStrong() bool {
+	return len(d.text) >= 2
+}
+
+func (d *Delimiter) match(closer *Delimiter) bool {
+	return d.text[0] == closer.text[0]
+}
+
+// very hard, taken from commonmark.js
+func (d *Delimiter) oddMatch(closer *Delimiter) bool {
+	opener := d
+	return (closer.canOpenEmphasis() || opener.canCloseEmphasis()) &&
+		len(closer.text)%3 > 0 &&
+		(len(opener.text)+len(closer.text))%3 == 0
 }
 
 // since delimiters in d are the same, from what end to remove is ignored.
