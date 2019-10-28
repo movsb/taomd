@@ -1734,10 +1734,16 @@ func tryParseHtmlTag(c []rune) ([]rune, *HtmlTag) {
 				i++ // skip '>'
 
 				// ends with '-->'
-				// NOT COMPATIBLE: does not end with -, and does not contain --
-				if len(c) >= 7 && c[i-3] == '-' && c[i-2] == '-' && c[i-1] == '>' {
+				if len(c[:i]) >= 7 && c[i-3] == '-' && c[i-2] == '-' && c[i-1] == '>' {
+					tag := string(c[0:i])
+					// An HTML comment consists of <!-- + text + -->, where text does not start with > or ->,
+					// does not end with -, and does not contain --. (See the HTML5 spec.)
+					text := string(tag[3 : len(tag)-3])
+					if strings.HasPrefix(text, ">") || strings.HasPrefix(text, "->") || strings.HasSuffix(text, "-") || strings.Contains(text, "--") {
+						return nil, nil
+					}
 					return c[i:], &HtmlTag{
-						Tag: string(c[0:i]),
+						Tag: tag,
 					}
 				}
 			}
@@ -1921,10 +1927,9 @@ func tryParseHtmlBlock(c []rune) *HtmlBlock {
 		i = j
 
 		if _, ok := htmlBlockStartCondition6TagNames[strings.ToLower(tagName)]; !ok {
-
 			// 7 complete closing tag
 			_, nc := skipPrefixSpaces(c[i:], -1)
-			if len(nc) > 0 && nc[0] == '>' || len(nc) > 1 && nc[0] == '>' && nc[1] == '\n' {
+			if len(nc) > 1 && nc[0] == '>' && (nc[1] == '\n' || unicode.IsSpace(nc[1])) {
 				h.condition = 7
 				h.append(c)
 				return h
@@ -2093,9 +2098,7 @@ func tryParseHtmlBlock(c []rune) *HtmlBlock {
 		}
 
 		if i == len(c) {
-			h.condition = 7
-			h.append(c)
-			return h
+			return nil
 		}
 
 		if c[i] == '/' {
