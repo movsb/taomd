@@ -174,7 +174,7 @@ func isSpace(c rune) bool {
 }
 
 func isPunctuation(r rune) bool {
-	_, ok := punctuations[r]
+	_, ok := punctuation[r]
 	return ok
 }
 

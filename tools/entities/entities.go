@@ -36,7 +36,12 @@ func main() {
 		sortedKeys[i] = k
 		i++
 	}
-	sort.Sort(LengthString(sortedKeys))
+
+	// sort alphabetically
+	sort.Strings(sortedKeys)
+
+	// sort by length
+	sort.Stable(LengthString(sortedKeys))
 
 	s1 := "var htmlEntities1 = map[string]rune {"
 	s2 := "var htmlEntities2 = map[string][2]rune {"
@@ -48,22 +53,24 @@ func main() {
 		if key[len(key)-1] != ';' {
 			continue
 		}
+
 		entity := entities[key]
-		quotedName := "`" + key[1:len(key)-1] + "`:"
 		codepoints := entity.Codepoints
+
+		key = key[1 : len(key)-1]
 
 		switch len(codepoints) {
 		case 1:
 			if len(key) != lastKeyLen1 {
 				s1 += "\n"
 			}
-			s1 += fmt.Sprintf("\t%s %d,\n", quotedName, codepoints[0])
+			s1 += fmt.Sprintf("\t`%s`: %d,\n", key, codepoints[0])
 			lastKeyLen1 = len(key)
 		case 2:
 			if len(key) != lastKeyLen2 {
 				s2 += "\n"
 			}
-			s2 += fmt.Sprintf("\t%s {%d, %d, },\n", quotedName, codepoints[0], codepoints[1])
+			s2 += fmt.Sprintf("\t`%s`: {%d, %d, },\n", key, codepoints[0], codepoints[1])
 			lastKeyLen2 = len(key)
 		}
 
