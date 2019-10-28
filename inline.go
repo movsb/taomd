@@ -193,8 +193,6 @@ type Link struct {
 
 	Link  string
 	Title string
-
-	ref string
 }
 
 func (l *Link) TextContent() string {
@@ -222,6 +220,17 @@ func (i *Image) TextContent() string {
 type Emphasis struct {
 	Delimiter string
 	Inlines   []Inline
+}
+
+func (e *Emphasis) TextContent() (s string) {
+	for _, i := range e.Inlines {
+		tc, ok := i.(ITextContent)
+		if !ok {
+			panic("implement ITextContent")
+		}
+		s += tc.TextContent()
+	}
+	return
 }
 
 // A HardLineBreak is a line break (not in a code span or HTML tag) that is preceded

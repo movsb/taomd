@@ -806,11 +806,7 @@ func parseRightBracket(texts *list.List, delimiters *list.List, c []rune) ([]run
 	var nc []rune
 	var ok bool
 
-	if opener.text == "[" {
-		nc, ok = parseLink(c[i:], &link)
-	} else {
-		nc, ok = parseImage(c[i:], &image)
-	}
+	nc, destination, title, ref, hasRef, ok := parseLink(c[i:])
 
 	if !ok {
 		delimiters.Remove(openerElement)
@@ -819,20 +815,38 @@ func parseRightBracket(texts *list.List, delimiters *list.List, c []rune) ([]run
 
 	// hack, to get texts betwee "[" and "]", for ref.
 	// TODO remember positions of "[" and "]".
-	if ref := link.ref; ref != "" {
-		if ref == "[]" {
+	if hasRef {
+		if ref == "" || ref == "[]" {
 			ref = ""
 			for e := opener.textElement; e != nil; {
-				if tc, ok := e.Value.(ITextContent); ok {
-					ref += tc.TextContent()
+				tc, ok := e.Value.(ITextContent)
+				if !ok {
+					panic("implement ITextContnet")
 				}
+				ref += tc.TextContent()
 				e = e.Prev()
 			}
 		}
 		ref = strings.ToLower(ref)
-		if !gdoc.refLink(ref, &link, true) {
+		if ref[0] == '!' {
+			ref = ref[1:]
+		}
+		dest, tt, ok := gdoc.refLink(ref, true)
+		if !ok {
+			delimiters.Remove(openerElement)
 			return nil, false
 		}
+
+		destination = dest
+		title = tt
+	}
+
+	if opener.text == "[" {
+		link.Link = destination
+		link.Title = title
+	} else {
+		image.Link = destination
+		image.Title = title
 	}
 
 	c = nc
@@ -997,8 +1011,9 @@ func parseEscape(c []rune) (rune, bool) {
 	return 0, false
 }
 
-func parseLink(c []rune, link *Link) ([]rune, bool) {
+func parseLink(c []rune) (remain []rune, dest string, title string, ref string, hasRef bool, oook bool) {
 	i := 0
+	oc := c
 
 	skipWhitespaces := func(atLeast int) bool {
 		j := i
@@ -1014,64 +1029,84 @@ func parseLink(c []rune, link *Link) ([]rune, bool) {
 
 	// shortcut reference link
 	if i == len(c) {
-		link.ref = "[]"
-		return c[i:], true
+		remain = c[i:]
+		hasRef = true
+		oook = true
+		return
 	}
 
 	switch c[i] {
 	case '[':
 		nc, label, ok := parseLinkLabel(c[i:])
 		if !ok {
-			return nil, false
+			remain = c
+			hasRef = true
+			oook = true
+			return
 		}
-		link.ref = label
-		return nc, true
+		ref = label
+		hasRef = true
+		remain = nc
+		oook = true
+		return
 	}
 
 	if c[i] != '(' {
-		link.ref = "[]"
-		return c[i:], true
-		return nil, false
+		// shortcut link ref
+		remain = c[i:]
+		hasRef = true
+		oook = true
+		return
 	}
 	i++ // skip '('
 
 	skipWhitespaces(0)
 	if i == len(c) || c[i] == ')' {
 		i++
-		return c[i:], true
+		remain = c[i:]
+		oook = true
+		return
 	}
 
-	c, dest, ok := parseLinkDestination(c[i:])
+	var ok bool
+
+	c, dest, ok = parseLinkDestination(c[i:])
 	if !ok {
-		return nil, false
+		return
 	}
 
-	link.Link = dest
 	i = 0
 
 	skipWhitespaces(0)
 	if i == len(c) || c[i] == ')' {
 		i++
-		return c[i:], true
+		remain = c[i:]
+		oook = true
+		return
 	}
 
-	c, title, ok := parseLinkTitle(c[i:])
+	c, title, ok = parseLinkTitle(c[i:])
 	if !ok {
-		return nil, false
+		remain = oc
+		hasRef = true
+		dest = ""
+		oook = true
+		return
 	}
 
-	link.Title = title
 	i = 0
 
 	skipWhitespaces(0)
 
 	if i == len(c) || c[i] != ')' {
-		return nil, false
+		return
 	}
 
 	i++
 
-	return c[i:], true
+	remain = c[i:]
+	oook = true
+	return
 }
 
 func parseLinkLabel(c []rune) ([]rune, string, bool) {
@@ -1082,16 +1117,34 @@ func parseLinkLabel(c []rune) ([]rune, string, bool) {
 
 	i++ // skip '['
 
-	j := i
-	for j < len(c) && c[j] != ']' {
-		j++
+	j := i // remember start
+	dest := []rune{}
+	for j < len(c) && c[j] != ']' && c[j] != '[' {
+		switch c[j] {
+		case '\\':
+			if r, ok := parseEscape(c[j:]); ok {
+				dest = append(dest, r)
+				j += 2
+			} else {
+				dest = append(dest, '\\')
+				j++
+			}
+		default:
+			dest = append(dest, c[j])
+			j++
+		}
 	}
 
 	if j == len(c) {
 		return nil, "", false
 	}
 
-	label := strings.TrimSpace(string(c[i:j]))
+	// Link labels cannot contain brackets, unless they are backslash-escaped:
+	if c[j] == '[' {
+		return nil, "", false
+	}
+
+	label := strings.TrimSpace(string(dest))
 
 	j++ // skip ']'
 
@@ -1262,117 +1315,6 @@ func parseLinkTitle(c []rune) ([]rune, string, bool) {
 	i++ // skip marker
 
 	return c[i:], title, true
-}
-
-func parseImage(c []rune, image *Image) ([]rune, bool) {
-	if len(c) == 0 || c[0] != '(' {
-		return c, false
-	}
-	c = c[1:]
-	i := 0
-	_, c = skipPrefixSpaces(c, -1)
-	if len(c) == 0 {
-		return nil, false
-	}
-	angle := c[0] == '<'
-	if angle {
-		c = c[1:]
-		dest := []rune{}
-		i := 0
-		for i < len(c) && c[i] != '>' && c[i] != '\n' {
-			if c[i] == '\\' {
-				if j := i + 1; j < len(c) && c[j] == '>' {
-					dest = append(dest, '>')
-					i++ // skip \
-					i++ // skip >
-					continue
-				}
-			}
-			dest = append(dest, c[i])
-			i++
-		}
-		if i == len(c) || c[i] != '>' {
-			return nil, false
-		}
-		image.Link = string(dest)
-		i++ // skip '>'
-		c = c[i:]
-	} else {
-		dest := []rune{}
-		i := 0
-		nParen := 0
-		for i < len(c) {
-			if c[i] <= ' ' || (c[i] == ')' && nParen == 0) {
-				break
-			}
-			switch c[i] {
-			default:
-				dest = append(dest, c[i])
-				i++
-			case '(':
-				nParen++
-				dest = append(dest, '(')
-				i++
-			case ')':
-				nParen--
-				dest = append(dest, ')')
-				i++
-			case '\\':
-				// Parentheses inside the link destination may be escaped:
-				// Parentheses and other symbols can also be escaped, as usual in Markdown:
-				if r, ok := parseEscape(c[i:]); ok {
-					dest = append(dest, r)
-					i += 2
-					continue
-				}
-				dest = append(dest, '\\')
-				i++
-			}
-		}
-		image.Link = string(dest)
-		c = c[i:]
-	}
-
-	_, c = skipPrefixSpaces(c, -1)
-
-	if len(c) == 0 {
-		return nil, false
-	}
-
-	// The title may be omitted
-	if c[0] == ')' {
-		return c[1:], true
-	}
-
-	// parse title
-	marker, ok := in(c, '\'', '"', '(')
-	if !ok {
-		return nil, false
-	}
-
-	start := 1
-	i = 1
-	for i < len(c) && (c[i] != marker && !(marker == '(' && c[i] == ')')) {
-		i++
-	}
-
-	if i == len(c) {
-		return nil, false
-	}
-
-	image.Title = string(c[start:i])
-
-	i++ // skip marker
-
-	c = c[i:]
-	i = 0
-	_, c = skipPrefixSpaces(c, -1)
-	if len(c) == 0 || c[0] != ')' {
-		return nil, false
-	}
-
-	i++
-	return c[i:], true
 }
 
 func parseAutoLink(c []rune) ([]rune, *Link, bool) {
@@ -2188,7 +2130,7 @@ func tryParseLinkReferenceDefinition(c []rune) *LinkReferenceDefinition {
 	l := LinkReferenceDefinition{}
 
 	nc, label, ok := parseLinkLabel(c)
-	if !ok {
+	if !ok || label == "[]" {
 		return nil
 	}
 	l.Label = label

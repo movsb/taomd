@@ -26,18 +26,16 @@ func (doc *Document) parseInlines() {
 	}
 }
 
-func (doc *Document) refLink(label string, link *Link, enclosed bool) bool {
+func (doc *Document) refLink(label string, enclosed bool) (string, string, bool) {
 	if !enclosed {
 		label = "[" + label + "]"
 	}
 	label = strings.ToLower(label)
 	ref, ok := doc.links[label]
 	if !ok {
-		return false
+		return "", "", false
 	}
-	link.Link = ref.Destination
-	link.Title = ref.Title
-	return true
+	return ref.Destination, ref.Title, true
 }
 
 // An HTML block is a group of lines that is treated as raw HTML (and will not be escaped in HTML output).

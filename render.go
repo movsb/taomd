@@ -53,9 +53,7 @@ func toInline(inline Inline) string {
 		s += "</a>"
 	case *Image:
 		s += fmt.Sprintf(`<img src="%s"`, escapeURL(it.Link))
-		if it.Alt != "" {
-			s += fmt.Sprintf(` alt="%s"`, escapeText(it.Alt))
-		}
+		s += fmt.Sprintf(` alt="%s"`, escapeText(it.Alt))
 		if it.Title != "" {
 			s += fmt.Sprintf(` title="%s"`, escapeText(it.Title))
 		}
