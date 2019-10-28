@@ -11,6 +11,13 @@ type _Entity struct {
 	Codepoints []rune `json:"codepoints"`
 }
 
+// LengthString : shorter strings first.
+type LengthString []string
+
+func (l LengthString) Len() int           { return len(l) }
+func (l LengthString) Less(i, j int) bool { return len(l[i]) < len(l[j]) }
+func (l LengthString) Swap(i, j int)      { l[i], l[j] = l[j], l[i] }
+
 func main() {
 	resp, err := http.Get("https://html.spec.whatwg.org/entities.json")
 	if err != nil {
@@ -29,10 +36,13 @@ func main() {
 		sortedKeys[i] = k
 		i++
 	}
-	sort.Strings(sortedKeys)
+	sort.Sort(LengthString(sortedKeys))
 
 	s1 := "var htmlEntities1 = map[string]rune {"
 	s2 := "var htmlEntities2 = map[string][2]rune {"
+
+	lastKeyLen1 := 0
+	lastKeyLen2 := 0
 
 	for _, key := range sortedKeys {
 		if key[len(key)-1] != ';' {
@@ -41,19 +51,29 @@ func main() {
 		entity := entities[key]
 		quotedName := "`" + key[1:len(key)-1] + "`:"
 		codepoints := entity.Codepoints
+
 		switch len(codepoints) {
 		case 1:
-			s1 += fmt.Sprintf("%s%d,", quotedName, codepoints[0])
+			if len(key) != lastKeyLen1 {
+				s1 += "\n"
+			}
+			s1 += fmt.Sprintf("\t%s %d,\n", quotedName, codepoints[0])
+			lastKeyLen1 = len(key)
 		case 2:
-			s2 += fmt.Sprintf("%s{%d,%d},", quotedName, codepoints[0], codepoints[1])
+			if len(key) != lastKeyLen2 {
+				s2 += "\n"
+			}
+			s2 += fmt.Sprintf("\t%s {%d, %d, },\n", quotedName, codepoints[0], codepoints[1])
+			lastKeyLen2 = len(key)
 		}
+
 	}
 
 	s1 += "}"
 	s2 += "}"
 
-	fmt.Printf("package main\n\n")
 	fmt.Println(s1)
+	fmt.Println()
 	fmt.Println(s2)
 	fmt.Println()
 }

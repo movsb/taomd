@@ -13,7 +13,7 @@ Also, for file size consideration, the leading `&` and trailing `;` characters a
 Execute the following at taomd project root:
 
 ```bash
-$ go run tools/entities/entities.go > entities.go
+$ go run tools/entities/entities.go
 ```
 
 ## Source
