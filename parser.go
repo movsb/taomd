@@ -2104,6 +2104,10 @@ func tryParseHtmlBlock(c []rune) *HtmlBlock {
 				return nil
 			}
 			i++
+			// followed only by whitespace or the end of the line
+			if i < len(c) && !unicode.IsSpace(c[i]) {
+				return nil
+			}
 			h.condition = 7
 			h.append(c)
 			return h
