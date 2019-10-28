@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 )
 
 type _Entity struct {
@@ -14,9 +15,20 @@ type _Entity struct {
 // LengthString : shorter strings first.
 type LengthString []string
 
-func (l LengthString) Len() int           { return len(l) }
-func (l LengthString) Less(i, j int) bool { return len(l[i]) < len(l[j]) }
-func (l LengthString) Swap(i, j int)      { l[i], l[j] = l[j], l[i] }
+func (s LengthString) Len() int { return len(s) }
+func (s LengthString) Less(i, j int) bool {
+	n := len(s[i]) - len(s[j])
+	switch {
+	case n < 0:
+		return true
+	case n > 0:
+		return false
+	default:
+		// less efficiency
+		return strings.ToLower(s[i]) < strings.ToLower(s[j])
+	}
+}
+func (s LengthString) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
 
 func main() {
 	resp, err := http.Get("https://html.spec.whatwg.org/entities.json")
@@ -36,9 +48,6 @@ func main() {
 		sortedKeys[i] = k
 		i++
 	}
-
-	// sort alphabetically
-	sort.Strings(sortedKeys)
 
 	// sort by length
 	sort.Stable(LengthString(sortedKeys))
