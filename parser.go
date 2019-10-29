@@ -57,13 +57,17 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 		}
 
 		if r, ok := in(s, '-', '_', '*'); ok {
-			hr := tryParseHorizontalRule(s, r)
-			if hr != nil {
+			if hr := tryParseHorizontalRule(s, r); hr != nil {
+				// If a line of dashes that meets the above conditions for being a thematic break
+				// could also be interpreted as the underline of a setext heading,
+				// the interpretation as a setext heading takes precedence.
 				if n := len(blocks); n > 0 && r == '-' {
 					if p, ok := blocks[n-1].(*Paragraph); ok {
+						raw := strings.Join(p.texts, "")
+						raw = strings.TrimSpace(raw)
 						heading := &Heading{
 							Level: 2,
-							text:  strings.Join(p.texts, ""),
+							text:  raw,
 						}
 						blocks[n-1] = heading
 						return true

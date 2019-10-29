@@ -235,27 +235,6 @@ type List struct {
 	Items []Blocker
 }
 
-// begin tries to parse List start indicator.
-// func (l *List) begin(s []rune) bool {
-// 	if len(l.Items) != 0 {
-// 		panic("wrong func call")
-// 	}
-//
-// 	// TODO no spaces after marker
-// 	// -
-// 	// -
-// 	// -
-// 	// is treated as list.
-// 	_, n := peekSpaces(s, 4)
-// 	if !(1 <= n && n <= 4) {
-// 		return false
-// 	}
-//
-// 	s, list, markerWidth, ok := l.parseMarker(s)
-//
-// 	return l.AddLine(s)
-// }
-
 func (l *List) parseMarker(s []rune) (remain []rune, list *List, prefixSpaces int, markerWidth int, ok bool) {
 	list = &List{}
 	prefixWidth := 0
@@ -310,7 +289,32 @@ func (l *List) parseMarker(s []rune) (remain []rune, list *List, prefixSpaces in
 	return s, list, prefixSpaces, prefixWidth + n, true
 }
 
+func (l *List) isHorizontalRule(s []rune) bool {
+	if _, s = skipPrefixSpaces(s, -1); len(s) == 0 {
+		return false
+	}
+
+	// very tricky
+	if s[0] != rune(l.MarkerChar) {
+		return false
+	}
+
+	if r, ok := in(s, '-', '_', '*'); ok {
+		if hr := tryParseHorizontalRule(s, r); hr != nil {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (l *List) AddLine(s []rune) bool {
+	// When both a thematic break and a list item are possible
+	// interpretations of a line, the thematic break takes precedence
+	if l.isHorizontalRule(s) {
+		return false
+	}
+
 	var lastItem *ListItem
 
 	for i := len(l.Items) - 1; i >= 0; i-- {
