@@ -3,6 +3,7 @@ package main
 import (
 	"container/list"
 	"io"
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -624,7 +625,7 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 			text = append(text, '\\')
 			i++
 		case '<':
-			if nc, link, ok := parseAutoLink(c[i:]); ok {
+			if nc, link, ok := parseUriAutoLink(c[i:]); ok {
 				c = nc
 				i = 0
 				appendText(link)
@@ -634,6 +635,12 @@ func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
 				i = 0
 				c = nc
 				appendText(tag)
+				continue
+			}
+			if nc, link := parseEmailAutoLink(c[i:]); link != nil {
+				c = nc
+				i = 0
+				appendText(link)
 				continue
 			}
 			text = append(text, '<')
@@ -1282,7 +1289,7 @@ func parseLinkTitle(c []rune) ([]rune, string, bool) {
 	return c[i:], title, true
 }
 
-func parseAutoLink(c []rune) ([]rune, *Link, bool) {
+func parseUriAutoLink(c []rune) ([]rune, *Link, bool) {
 	if len(c) == 0 {
 		return nil, nil, false
 	}
@@ -1371,6 +1378,25 @@ func parseAutoLink(c []rune) ([]rune, *Link, bool) {
 		},
 	}
 	return c[i+1:], link, true
+}
+
+// https://spec.commonmark.org/0.29/#email-address
+// not fully compatible
+var reEmail = regexp.MustCompile(`^<[[:alnum:].+-]+@[[:alnum:]](?:[[:alnum:]-]{0,61}[[:alnum:]])?(?:\.[[:alnum:]](?:[[:alnum:]-]{0,61}[[:alnum:]])?)*>`)
+
+func parseEmailAutoLink(c []rune) ([]rune, *Link) {
+	bys := []byte(string(c))
+	loc := reEmail.FindIndex(bys)
+	if loc == nil {
+		return nil, nil
+	}
+	email := string(bys[loc[0]+1 : loc[1]-1])
+	link := Link{
+		Inlines: []Inline{&Text{Text: email}},
+		Link:    "mailto:" + email,
+	}
+	remain := []rune(string(bys[loc[1]:]))
+	return remain, &link
 }
 
 func isHexDigit(r rune) bool {
