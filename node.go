@@ -119,12 +119,18 @@ type Line struct {
 }
 
 type Heading struct {
-	Level int
-	text  string
+	Level   int
+	Inlines []Inline
+	text    string
 }
 
 func (h *Heading) AddLine(s []rune) bool {
 	return false
+}
+
+func (h *Heading) parseInlines() {
+	text := strings.TrimSpace(h.text)
+	h.Inlines = parseInlines(text)
 }
 
 // An HTML block is a group of lines that is treated as raw HTML (and will not be escaped in HTML output).

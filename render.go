@@ -113,7 +113,11 @@ func toHTML(block Blocker) string {
 		_ = typed
 		s += "<hr />\n"
 	case *Heading:
-		s += fmt.Sprintf("<h%[1]d>%s</h%[1]d>\n", typed.Level, typed.text)
+		s += fmt.Sprintf("<h%d>", typed.Level)
+		for _, inline := range typed.Inlines {
+			s += toInline(inline)
+		}
+		s += fmt.Sprintf("</h%d>\n", typed.Level)
 	case *CodeBlock:
 		if typed.Lang == "" {
 			s += fmt.Sprintf("<pre><code>%s</code></pre>\n", escapeText(typed.String()))
