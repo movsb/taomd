@@ -65,8 +65,13 @@ type Paragraph struct {
 
 func (p *Paragraph) AddLine(s []rune) bool {
 	var blocks []Blocker
-	if !addLine(&blocks, s) || len(blocks) == 0 {
+	if !addLine(&blocks, s) {
 		panic("won't happen")
+	}
+
+	// A Link Reference Definition was added.
+	if len(blocks) == 0 {
+		return true
 	}
 
 	// Leading spaces at the beginning of the next line are ignored
