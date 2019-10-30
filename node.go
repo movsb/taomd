@@ -301,14 +301,20 @@ func (l *List) parseMarker(s []rune) (remain []rune, list *List, prefixSpaces in
 		return
 	}
 
-	_, n := peekSpaces(s, 4)
+	// Explain for "5"
+	// If the first block in the list item is an indented code block,
+	// then by rule #2, the contents must be indented one space after the list marker
+	_, n := peekSpaces(s, 5)
 	if n < 1 {
 		return
 	}
 
-	s = s[n:]
-
-	return s, list, prefixSpaces, prefixWidth + n, true
+	switch {
+	case n == 5:
+		return s[1:], list, prefixSpaces, prefixWidth + 1, true
+	default:
+		return s[n:], list, prefixSpaces, prefixWidth + n, true
+	}
 }
 
 func (l *List) isHorizontalRule(s []rune) bool {
