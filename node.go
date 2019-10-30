@@ -50,6 +50,7 @@ func (bl *BlankLine) AddLine(s []rune) bool {
 // HorizontalRule is a horizontal rule (thematic breaks).
 // https://spec.commonmark.org/0.29/#thematic-breaks
 type HorizontalRule struct {
+	Marker rune
 }
 
 func (hr *HorizontalRule) AddLine(s []rune) bool {
@@ -133,6 +134,15 @@ func (h *Heading) parseInlines() {
 	h.Inlines = parseInlines(text)
 }
 
+type SetextHeading struct {
+	line  []rune
+	level int
+}
+
+func (h *SetextHeading) AddLine(s []rune) bool {
+	return false
+}
+
 // An HTML block is a group of lines that is treated as raw HTML (and will not be escaped in HTML output).
 type HtmlBlock struct {
 	Lines [][]rune
@@ -201,6 +211,7 @@ type BlockQuote struct {
 
 func (bq *BlockQuote) AddLine(s []rune) bool {
 	_, ok := tryParseBlockQuote(s, bq)
+	tryMergeSetextHeading(&bq.blocks)
 	return ok
 }
 
@@ -445,7 +456,11 @@ func (li *ListItem) AddLine(s []rune) bool {
 		return false
 	}
 	s = s[nSkipped:]
-	return addLine(&li.blocks, s)
+	if addLine(&li.blocks, s) {
+		tryMergeSetextHeading(&li.blocks)
+		return true
+	}
+	return false
 }
 
 func (li *ListItem) parseInlines() {

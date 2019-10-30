@@ -58,22 +58,14 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 
 		if r, ok := in(s, '-', '_', '*'); ok {
 			if hr := tryParseHorizontalRule(s, r); hr != nil {
-				// If a line of dashes that meets the above conditions for being a thematic break
-				// could also be interpreted as the underline of a setext heading,
-				// the interpretation as a setext heading takes precedence.
-				if n := len(blocks); n > 0 && r == '-' {
-					if p, ok := blocks[n-1].(*Paragraph); ok {
-						raw := strings.Join(p.texts, "")
-						raw = strings.TrimSpace(raw)
-						heading := &Heading{
-							Level: 2,
-							text:  raw,
-						}
-						blocks[n-1] = heading
-						return true
-					}
-				}
 				blocks = append(blocks, hr)
+				return true
+			}
+		}
+
+		if _, ok := in(s, '=', '-'); ok {
+			if heading := tryParseSetextHeadingUnderline(s); heading != nil {
+				blocks = append(blocks, heading)
 				return true
 			}
 		}
@@ -83,21 +75,6 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 			if heading != nil {
 				blocks = append(blocks, heading)
 				return true
-			}
-		}
-
-		if r, ok := in(s, '=', '-'); ok {
-			_ = r
-			rs, heading := tryParseSetextHeadingUnderline(s)
-			if heading != nil {
-				_ = rs
-				if n := len(blocks); n > 0 {
-					if p, ok := blocks[n-1].(*Paragraph); ok {
-						heading.text = strings.Join(p.texts, "")
-						blocks[n-1] = heading
-						return true
-					}
-				}
 			}
 		}
 
@@ -239,6 +216,7 @@ func parse(in io.Reader, example int) *Document {
 
 	for ls.Scan() {
 		doc.AddLine(ls.Text())
+		tryMergeSetextHeading(&doc.blocks)
 	}
 
 	doc.parseInlines()
@@ -268,7 +246,7 @@ func tryParseHorizontalRule(c []rune, start rune) *HorizontalRule {
 	}
 
 	if _, ok := skipEnding(c[i:]); ok {
-		return &HorizontalRule{}
+		return &HorizontalRule{Marker: start}
 	}
 
 	return nil
@@ -359,7 +337,8 @@ func tryParseAtxHeading(c []rune) *Heading {
 	}
 }
 
-func tryParseSetextHeadingUnderline(c []rune) ([]rune, *Heading) {
+func tryParseSetextHeadingUnderline(c []rune) *SetextHeading {
+	oc := c
 	start := c[0]
 	i := 0
 	for c[i] == start {
@@ -373,11 +352,12 @@ func tryParseSetextHeadingUnderline(c []rune) ([]rune, *Heading) {
 		if start == '-' {
 			level = 2
 		}
-		return []rune{}, &Heading{
-			Level: level,
+		return &SetextHeading{
+			line:  oc,
+			level: level,
 		}
 	}
-	return c, nil
+	return nil
 }
 
 func tryParseFencedCodeBlockStart(c []rune, marker rune, indent int) *CodeBlock {
@@ -2188,4 +2168,47 @@ func tryParseLinkReferenceDefinition(c []rune) *LinkReferenceDefinition {
 	}
 
 	return &l
+}
+
+func tryMergeSetextHeading(pbs *[]Blocker) {
+	n := len(*pbs)
+	if n < 1 {
+		return
+	}
+
+	blocks := *pbs
+	defer func() { *pbs = blocks }()
+
+	switch typed := blocks[n-1].(type) {
+	case *SetextHeading:
+		if n == 1 {
+			blocks[n-1] = &Paragraph{
+				texts: []string{string(typed.line)},
+			}
+			return
+		}
+		if p, ok := blocks[n-2].(*Paragraph); ok {
+			heading := Heading{
+				Level: typed.level,
+				text:  strings.Join(p.texts, ""),
+			}
+			blocks[n-2] = &heading
+			blocks = blocks[:n-1]
+		} else {
+			blocks[n-1] = &Paragraph{
+				texts: []string{string(typed.line)},
+			}
+		}
+	case *HorizontalRule:
+		if typed.Marker == '-' && n >= 2 {
+			if p, ok := blocks[n-2].(*Paragraph); ok {
+				heading := Heading{
+					Level: 2,
+					text:  strings.Join(p.texts, ""),
+				}
+				blocks[n-2] = &heading
+				blocks = blocks[:n-1]
+			}
+		}
+	}
 }
