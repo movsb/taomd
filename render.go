@@ -159,9 +159,17 @@ func toHTML(block Blocker) string {
 			} else {
 				s += "<li>\n"
 			}
+
+			var lastParagraph *Paragraph
 			for _, block := range item.(*ListItem).blocks {
+				if lastParagraph != nil && lastParagraph.Tight {
+					s += "\n"
+				}
 				if p, ok := block.(*Paragraph); ok {
 					p.Tight = typed.Tight
+					lastParagraph = p
+				} else {
+					lastParagraph = nil
 				}
 				s += toHTML(block)
 			}

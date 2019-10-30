@@ -354,6 +354,10 @@ func (l *List) AddLine(s []rune) bool {
 
 	if lastItem != nil {
 		if lastItem.AddLine(s) {
+			if isBlankLine(s) {
+				l.Items = append(l.Items, &BlankLine{})
+				return true
+			}
 			return true
 		}
 	}
@@ -475,6 +479,7 @@ type ListItem struct {
 func (li *ListItem) AddLine(s []rune) bool {
 	if len(s) == 1 && s[0] == '\n' {
 		if len(li.blocks) > 0 && li.blocks[len(li.blocks)-1].AddLine(s) {
+			li.blocks = append(li.blocks, &BlankLine{})
 			return true
 		}
 		li.blocks = append(li.blocks, &BlankLine{})
