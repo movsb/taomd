@@ -160,6 +160,12 @@ func isPunctuation(r rune) bool {
 	return ok
 }
 
+var reBlankLine = regexp.MustCompile(`^\s*$`)
+
+func isBlankLine(r []rune) bool {
+	return reBlankLine.MatchString(string(r))
+}
+
 func peekSpaces(r []rune, atMost int) ([]rune, int) {
 	n := 0
 	for n < atMost && n < len(r) && isSpace(r[n]) {

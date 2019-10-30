@@ -352,6 +352,11 @@ func (l *List) AddLine(s []rune) bool {
 		}
 	}
 
+	if isBlankLine(s) {
+		l.Items = append(l.Items, &BlankLine{})
+		return true
+	}
+
 	s, list, prefixSpaces, markerWidth, ok := l.parseMarker(s)
 	if !ok {
 		return false
@@ -379,7 +384,17 @@ func (l *List) AddLine(s []rune) bool {
 
 	l.Items = append(l.Items, lastItem)
 
-	return addLine(&lastItem.blocks, s)
+	if addLine(&lastItem.blocks, s) {
+		return true
+	}
+
+	_, s = skipPrefixSpaces(s, -1)
+	if len(s) == 0 || s[0] == '\n' {
+		l.Items = append(l.Items, &BlankLine{})
+		return true
+	}
+
+	return false
 }
 
 // A list is loose if any of its constituent list items are separated by blank lines,
@@ -389,43 +404,48 @@ func (l *List) AddLine(s []rune) bool {
 // The difference in HTML output is that paragraphs in a loose list are
 // wrapped in <p> tags, while paragraphs in a tight list are not.
 func (l *List) deduceIsTight() {
-	var bp Blocker
-	var bl *BlankLine
+	var setListBlock Blocker
+	var setListBlankLine *BlankLine
 
 	for _, item := range l.Items {
 		switch t := item.(type) {
-		case *ListItem:
-			if bl != nil {
+		default:
+			if setListBlankLine != nil {
 				l.Tight = false
 				return
 			}
-			bp = t
+			if setListBlock == nil {
+				setListBlock = t
+			}
 		case *BlankLine:
-			if bp != nil {
-				bl = t
+			if setListBlock != nil {
+				if setListBlankLine == nil {
+					setListBlankLine = t
+				}
 			}
 		}
 
 		if pItem, ok := item.(*ListItem); ok {
-			var ibp Blocker
-			var ibl *BlankLine
+			var setItemBlock Blocker
+			var setItemBlankLine *BlankLine
+
 			for _, block := range pItem.blocks {
 				switch t := block.(type) {
 				default:
-					if ibl != nil {
+					if setItemBlankLine != nil {
 						l.Tight = false
 						return
 					}
-					ibp = t
+					if setItemBlock == nil {
+						setItemBlock = t
+					}
 				case *BlankLine:
-					if ibp != nil {
-						ibl = t
+					if setItemBlock != nil {
+						if setItemBlankLine == nil {
+							setItemBlankLine = t
+						}
 					}
 				}
-			}
-			if ibp != nil && ibl != nil {
-				l.Tight = false
-				return
 			}
 		}
 	}
@@ -463,9 +483,35 @@ func (li *ListItem) AddLine(s []rune) bool {
 	s = s[nSkipped:]
 	if addLine(&li.blocks, s) {
 		tryMergeSetextHeading(&li.blocks)
+		li.tryMergeCodeBlock()
 		return true
 	}
 	return false
+}
+
+// A list item that contains an indented code block will preserve
+// empty lines within the code block verbatim.
+func (li *ListItem) tryMergeCodeBlock() {
+	if lastCode, ok := li.blocks[len(li.blocks)-1].(*CodeBlock); ok {
+		j := len(li.blocks) - 2
+		n := 0
+		for j = len(li.blocks) - 2; j >= 0; j-- {
+			if _, ok := li.blocks[j].(*BlankLine); !ok {
+				break
+			}
+			n++
+		}
+		if j > 0 && n > 0 {
+			if prevCode, ok := li.blocks[j].(*CodeBlock); ok {
+				for n > 0 {
+					prevCode.lines = append(prevCode.lines, "\n")
+					n--
+				}
+				prevCode.lines = append(prevCode.lines, lastCode.lines[0])
+				li.blocks = li.blocks[:j+1]
+			}
+		}
+	}
 }
 
 func (li *ListItem) parseInlines() {
