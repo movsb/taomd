@@ -1961,6 +1961,10 @@ func tryParseHtmlBlock(c []rune) *HtmlBlock {
 			}
 			h.append(c)
 			h.condition = 2
+			// TODO this is a temp fix
+			if strings.Contains(string(c), "-->") {
+				h.closed = true
+			}
 			return h
 		default:
 			if 'A' <= c[i] && c[i] <= 'Z' {
