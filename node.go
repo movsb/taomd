@@ -61,9 +61,14 @@ type Paragraph struct {
 	texts   []string
 	Tight   bool
 	Inlines []Inline
+	closed  bool
 }
 
 func (p *Paragraph) AddLine(s []rune) bool {
+	if p.closed {
+		return false
+	}
+
 	var blocks []Blocker
 	if !addLine(&blocks, s) {
 		panic("won't happen")
@@ -120,6 +125,7 @@ func (p *Paragraph) AddLine(s []rune) bool {
 		}
 	}
 
+	p.closed = true
 	return false
 }
 
@@ -334,7 +340,7 @@ func (l *List) parseMarker(s []rune) (remain []rune, list *List, prefixSpaces in
 	// When the list item starts with a blank line, the number of spaces
 	// following the list marker doesn’t change the required indentation
 	if isBlankLine(s) {
-		return s[len(s):], list, prefixSpaces, prefixSpaces + 1, true
+		return s[len(s):], list, prefixSpaces, prefixWidth + 1, true
 	}
 
 	// Explain for "5"
@@ -413,9 +419,9 @@ func (l *List) AddLine(s []rune) bool {
 			return true
 		}
 
-		if lastItem.addLaziness(s) {
-			return true
-		}
+		//if lastItem.addLaziness(s) {
+		//	return true
+		//}
 	}
 
 	if isBlankLine(s) {
@@ -424,8 +430,13 @@ func (l *List) AddLine(s []rune) bool {
 	}
 
 	// Notice: returning s may be empty while ok == true.
+	os := s
 	s, list, prefixSpaces, markerWidth, ok := l.parseMarker(s)
 	if !ok {
+		// return false
+		if lastItem != nil {
+			return lastItem.addLaziness(os)
+		}
 		return false
 	}
 
@@ -565,10 +576,11 @@ func (li *ListItem) addLaziness(s []rune) bool {
 func (li *ListItem) AddLine(s []rune) bool {
 	if len(s) == 1 && s[0] == '\n' {
 		if len(li.blocks) > 0 && li.blocks[len(li.blocks)-1].AddLine(s) {
-			li.blocks = append(li.blocks, &BlankLine{})
+			// li.blocks = append(li.blocks, &BlankLine{})
 			return true
 		}
 		// A list item can begin with at most one blank line.
+		// A blank line has been added while creating this ListItem.
 		if len(li.blocks) == 0 {
 			return false
 		}
