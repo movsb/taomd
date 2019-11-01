@@ -65,8 +65,12 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 
 		if _, ok := in(s, '=', '-'); ok {
 			if heading := tryParseSetextHeadingUnderline(s); heading != nil {
-				blocks = append(blocks, heading)
-				return true
+				if len(blocks) > 0 {
+					if _, ok := blocks[len(blocks)-1].(*Paragraph); ok {
+						blocks = append(blocks, heading)
+						return true
+					}
+				}
 			}
 		}
 

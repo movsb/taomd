@@ -6,6 +6,7 @@ import (
 	"container/list"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"unicode/utf8"
 )
@@ -79,7 +80,7 @@ func dumpFail(markdown string, want string, given string) {
 		max = ng
 	}
 
-	fmt.Printf(`----------Markdown----------
+	fmt.Fprintf(os.Stderr, `----------Markdown----------
 
 %s
 ------------Want------------

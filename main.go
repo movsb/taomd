@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
@@ -16,11 +17,17 @@ type Test struct {
 
 var gdoc *Document
 
+var markdown = ``
+
 func main() {
 	example := ""
 
 	if example == "" && len(os.Args) == 1 {
-		gdoc = parse(os.Stdin, -1)
+		var fp io.Reader = os.Stdin
+		if markdown != "" {
+			fp = strings.NewReader(markdown)
+		}
+		gdoc = parse(fp, -1)
 		h := render(gdoc)
 		fmt.Print(h)
 		return

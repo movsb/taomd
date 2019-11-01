@@ -99,6 +99,15 @@ func (p *Paragraph) AddLine(s []rune) bool {
 			p.texts = append(p.texts, trimLeft(string(s)))
 			return true
 		}
+		// However, an empty list item cannot interrupt a paragraph
+		if len(typed.Items) == 1 {
+			if subItem, ok := typed.Items[0].(*ListItem); ok {
+				if len(subItem.blocks) == 0 {
+					p.texts = append(p.texts, trimLeft(string(s)))
+					return true
+				}
+			}
+		}
 	case *LinkReferenceDefinition:
 		// A link reference definition cannot interrupt a paragraph.
 		p.texts = append(p.texts, trimLeft(string(s)))
@@ -112,6 +121,11 @@ func (p *Paragraph) AddLine(s []rune) bool {
 	}
 
 	return false
+}
+
+func (p *Paragraph) addLaziness(s []rune) bool {
+	_, s = skipPrefixSpaces(s, -1)
+	return p.AddLine(s)
 }
 
 func (p *Paragraph) parseInlines() {
@@ -216,8 +230,11 @@ type BlockQuote struct {
 
 func (bq *BlockQuote) AddLine(s []rune) bool {
 	_, ok := tryParseBlockQuote(s, bq)
-	tryMergeSetextHeading(&bq.blocks)
-	return ok
+	if ok {
+		tryMergeSetextHeading(&bq.blocks)
+		return true
+	}
+	return bq.addLaziness(s)
 }
 
 func (bq *BlockQuote) parseInlines() {
@@ -226,6 +243,21 @@ func (bq *BlockQuote) parseInlines() {
 			inliner.parseInlines()
 		}
 	}
+}
+
+func (bq *BlockQuote) addLaziness(s []rune) bool {
+	if len(bq.blocks) == 0 {
+		return false
+	}
+	switch typed := bq.blocks[len(bq.blocks)-1].(type) {
+	case *List:
+		return typed.addLaziness(s)
+	case *BlockQuote:
+		return typed.addLaziness(s)
+	case *Paragraph:
+		return typed.addLaziness(s)
+	}
+	return false
 }
 
 // A List is a sequence of one or more list items of the same type.
@@ -255,6 +287,8 @@ type List struct {
 	Start int
 
 	Items []Blocker
+
+	closed bool
 }
 
 func (l *List) parseMarker(s []rune) (remain []rune, list *List, prefixSpaces int, markerWidth int, ok bool) {
@@ -297,16 +331,23 @@ func (l *List) parseMarker(s []rune) (remain []rune, list *List, prefixSpaces in
 		}
 	}
 
-	if len(s) == 0 {
-		return
+	// When the list item starts with a blank line, the number of spaces
+	// following the list marker doesn’t change the required indentation
+	if isBlankLine(s) {
+		return s[len(s):], list, prefixSpaces, prefixSpaces + 1, true
 	}
 
 	// Explain for "5"
 	// If the first block in the list item is an indented code block,
 	// then by rule #2, the contents must be indented one space after the list marker
 	_, n := peekSpaces(s, 5)
+
 	if n < 1 {
-		return
+		if len(s) == 0 || len(s) == 1 && s[0] == '\n' {
+			// A list may start or end with an empty list item
+			return s, list, prefixSpaces, prefixWidth + 1, true
+		}
+		return s, nil, 0, 0, false
 	}
 
 	switch {
@@ -337,10 +378,16 @@ func (l *List) isHorizontalRule(s []rune) bool {
 }
 
 func (l *List) AddLine(s []rune) bool {
+	if l.closed {
+		return false
+	}
+
+	// If any line is a thematic break then that line is not a list item.
+	//
 	// When both a thematic break and a list item are possible
 	// interpretations of a line, the thematic break takes precedence
 	if l.isHorizontalRule(s) {
-		return false
+		//return false
 	}
 
 	var lastItem *ListItem
@@ -360,6 +407,15 @@ func (l *List) AddLine(s []rune) bool {
 			}
 			return true
 		}
+
+		if isBlankLine(s) {
+			l.closed = true
+			return true
+		}
+
+		if lastItem.addLaziness(s) {
+			return true
+		}
 	}
 
 	if isBlankLine(s) {
@@ -367,6 +423,7 @@ func (l *List) AddLine(s []rune) bool {
 		return true
 	}
 
+	// Notice: returning s may be empty while ok == true.
 	s, list, prefixSpaces, markerWidth, ok := l.parseMarker(s)
 	if !ok {
 		return false
@@ -393,6 +450,12 @@ func (l *List) AddLine(s []rune) bool {
 	}
 
 	l.Items = append(l.Items, lastItem)
+
+	// trick: A list may start or end with an empty list item
+	if len(s) == 0 || len(s) == 1 && s[0] == '\n' {
+		// lastItem.blocks = append(lastItem.blocks, &BlankLine{})
+		return true
+	}
 
 	if addLine(&lastItem.blocks, s) {
 		return true
@@ -470,10 +533,33 @@ func (l *List) parseInlines() {
 	}
 }
 
+func (l *List) addLaziness(s []rune) bool {
+	if len(l.Items) > 0 {
+		if lastItem, ok := l.Items[len(l.Items)-1].(*ListItem); ok {
+			return lastItem.addLaziness(s)
+		}
+	}
+	return false
+}
+
 type ListItem struct {
 	prefixSpaces int
 	suffixSpaces int
 	blocks       []Blocker
+}
+
+func (li *ListItem) addLaziness(s []rune) bool {
+	if len(li.blocks) > 0 {
+		switch typed := li.blocks[len(li.blocks)-1].(type) {
+		case *List:
+			return typed.addLaziness(s)
+		case *Paragraph:
+			return typed.AddLine(s)
+		case *BlockQuote:
+			return typed.addLaziness(s)
+		}
+	}
+	return false
 }
 
 func (li *ListItem) AddLine(s []rune) bool {
@@ -481,6 +567,10 @@ func (li *ListItem) AddLine(s []rune) bool {
 		if len(li.blocks) > 0 && li.blocks[len(li.blocks)-1].AddLine(s) {
 			li.blocks = append(li.blocks, &BlankLine{})
 			return true
+		}
+		// A list item can begin with at most one blank line.
+		if len(li.blocks) == 0 {
+			return false
 		}
 		li.blocks = append(li.blocks, &BlankLine{})
 		return true
@@ -600,12 +690,35 @@ func (cb *CodeBlock) AddLine(s []rune) bool {
 			}
 		}
 	} else {
-		isIndented := len(s) >= 4 && s[0] == ' ' && s[1] == ' ' && s[2] == ' ' && s[3] == ' '
+		isIndented := false
+		if !isIndented {
+			isIndented = len(s) >= 4 && s[0] == ' ' && s[1] == ' ' && s[2] == ' ' && s[3] == ' '
+			if isIndented {
+				s = s[4:]
+			}
+		}
+		if !isIndented {
+			if len(s) == 1 && s[0] == '\n' {
+				isIndented = true
+			}
+		}
+		if !isIndented {
+			n, ns := skipPrefixSpaces(s, 3)
+			if len(ns) == 1 && ns[0] == '\n' {
+				isIndented = true
+				s = s[n:]
+			}
+		}
+		if !isIndented {
+			if len(s) >= 1 && s[0] == '\t' {
+				s = s[1:]
+				isIndented = true
+			}
+		}
 		if !isIndented {
 			cb.closed = true
 			return false
 		}
-		s = s[4:]
 	}
 
 	cb.lines = append(cb.lines, string(s))
@@ -613,6 +726,15 @@ func (cb *CodeBlock) AddLine(s []rune) bool {
 }
 
 func (cb *CodeBlock) String() string {
+	// TODO fixed wrong blank lines added
+	if !cb.isFenced() {
+		n := len(cb.lines) - 1
+		for n >= 0 && isBlankLine([]rune(cb.lines[n])) {
+			n--
+		}
+		// n must > 0
+		cb.lines = cb.lines[:n+1]
+	}
 	return strings.Join(cb.lines, "")
 }
 
