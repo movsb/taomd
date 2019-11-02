@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/movsb/taomd"
 )
@@ -18,22 +19,61 @@ func main() {
 
 	examples := loadExamples("spec.json")
 
-	switch os.Args[1] {
+	i := 1
+
+	switch os.Args[i] {
 	default:
-		panic("unknown arguments provided.")
-	case "--test-all", "-a":
-		testFunc(examples, func(*Example) bool { return true })
-	case "--test-sections", "-s":
-		testSections(examples, os.Args[2:]...)
-	case "--test-numbers", "-n":
-		numbers := []int{}
-		for _, arg := range os.Args[2:] {
-			n, err := strconv.Atoi(arg)
-			if err != nil {
-				panic(err)
+		panic("unknown command")
+	case "test":
+		var (
+			loop    = true
+			all     = false
+			section = false
+			number  = false
+			save    = false
+			compare = false
+		)
+
+		for i++; i < len(os.Args) && loop; {
+			switch os.Args[i] {
+			default:
+				if strings.HasPrefix(os.Args[i], "-") {
+					panic("unknown arguments: " + os.Args[i])
+				}
+				loop = false
+			case "--all", "-a":
+				i++
+				all = true
+			case "--sections", "-s":
+				i++
+				section = true
+			case "--numbers", "-n":
+				i++
+				number = true
+			case "--save":
+				i++
+				save = true
+			case "--compare":
+				i++
+				compare = true
 			}
-			numbers = append(numbers, n)
 		}
-		testNumbers(examples, numbers...)
+
+		switch {
+		case all:
+			testAll(examples, compare, save)
+		case section:
+			testSections(examples, os.Args[i:]...)
+		case number:
+			numbers := []int{}
+			for _, arg := range os.Args[2:] {
+				n, err := strconv.Atoi(arg)
+				if err != nil {
+					panic(err)
+				}
+				numbers = append(numbers, n)
+			}
+			testNumbers(examples, numbers...)
+		}
 	}
 }
