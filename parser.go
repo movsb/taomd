@@ -1,4 +1,4 @@
-package main
+package taomd
 
 import (
 	"container/list"
@@ -8,6 +8,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 )
+
+var doc *Document
 
 func skipPrefixSpaces(s []rune, max int) (int, []rune) {
 	n := 0
@@ -124,8 +126,8 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 		if s[0] == '[' {
 			if link := tryParseLinkReferenceDefinition(s); link != nil {
 				label := strings.ToLower(link.Label)
-				if _, ok := gdoc.links[label]; !ok {
-					gdoc.links[label] = link
+				if _, ok := doc.links[label]; !ok {
+					doc.links[label] = link
 				}
 				return true
 			}
@@ -215,11 +217,8 @@ func any(c rune, rs ...rune) bool {
 
 var ls *LineScanner
 
-func parse(in io.Reader, example int) *Document {
-	var doc Document
-	gdoc = &doc
-
-	doc.example = example
+func Parse(in io.Reader) *Document {
+	doc = &Document{}
 	doc.links = make(map[string]*LinkReferenceDefinition)
 
 	ls = NewLineScanner(in)
@@ -231,7 +230,7 @@ func parse(in io.Reader, example int) *Document {
 
 	doc.parseInlines()
 
-	return &doc
+	return doc
 }
 
 func tryParseHorizontalRule(c []rune, start rune) *HorizontalRule {
@@ -797,7 +796,7 @@ func parseRightBracket(texts *list.List, delimiters *list.List, c []rune) ([]run
 		if ref[0] == '!' {
 			ref = ref[1:]
 		}
-		dest, tt, ok := gdoc.refLink(ref, true)
+		dest, tt, ok := doc.refLink(ref, true)
 		if !ok {
 			delimiters.Remove(openerElement)
 			return nil, false

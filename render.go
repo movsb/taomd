@@ -1,4 +1,4 @@
-package main
+package taomd
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func render(doc *Document) string {
+func Render(doc *Document) string {
 	var s string
 
 	for _, block := range doc.blocks {

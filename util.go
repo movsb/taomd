@@ -1,4 +1,4 @@
-package main
+package taomd
 
 import (
 	"bufio"
@@ -6,7 +6,6 @@ import (
 	"container/list"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"unicode/utf8"
 )
@@ -67,7 +66,7 @@ func HexDump(s string) (int, func(max int) string) {
 	}
 }
 
-func dumpFail(markdown string, want string, given string) {
+func DumpFail(w io.Writer, markdown string, want string, given string) {
 	nm, sm := HexDump(markdown)
 	nw, sw := HexDump(want)
 	ng, sg := HexDump(given)
@@ -80,7 +79,7 @@ func dumpFail(markdown string, want string, given string) {
 		max = ng
 	}
 
-	fmt.Fprintf(os.Stderr, `----------Markdown----------
+	fmt.Fprintf(w, `----------Markdown----------
 
 %s
 ------------Want------------

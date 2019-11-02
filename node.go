@@ -1,4 +1,4 @@
-package main
+package taomd
 
 import (
 	"container/list"
@@ -11,9 +11,8 @@ type Blocker interface {
 }
 
 type Document struct {
-	example int
-	blocks  []Blocker
-	links   map[string]*LinkReferenceDefinition
+	blocks []Blocker
+	links  map[string]*LinkReferenceDefinition
 }
 
 func (doc *Document) AddLine(s []rune) {
