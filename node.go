@@ -414,7 +414,8 @@ func (l *List) AddLine(s []rune) bool {
 		}
 
 		if isBlankLine(s) {
-			l.closed = true
+			// lastItem.closed = true
+			l.Items = append(l.Items, &BlankLine{})
 			return true
 		}
 
@@ -556,6 +557,7 @@ type ListItem struct {
 	prefixSpaces int
 	suffixSpaces int
 	blocks       []Blocker
+	closed       bool
 }
 
 func (li *ListItem) addLaziness(s []rune) bool {
@@ -564,7 +566,7 @@ func (li *ListItem) addLaziness(s []rune) bool {
 		case *List:
 			return typed.addLaziness(s)
 		case *Paragraph:
-			return typed.AddLine(s)
+			return typed.addLaziness(s)
 		case *BlockQuote:
 			return typed.addLaziness(s)
 		}
@@ -573,16 +575,23 @@ func (li *ListItem) addLaziness(s []rune) bool {
 }
 
 func (li *ListItem) AddLine(s []rune) bool {
+	if li.closed {
+		return false
+	}
+
 	if len(s) == 1 && s[0] == '\n' {
 		if len(li.blocks) > 0 && li.blocks[len(li.blocks)-1].AddLine(s) {
 			// li.blocks = append(li.blocks, &BlankLine{})
 			return true
 		}
+
 		// A list item can begin with at most one blank line.
 		// A blank line has been added while creating this ListItem.
 		if len(li.blocks) == 0 {
+			li.closed = true
 			return false
 		}
+
 		li.blocks = append(li.blocks, &BlankLine{})
 		return true
 	}
@@ -679,61 +688,50 @@ func (cb *CodeBlock) AddLine(s []rune) bool {
 	}
 
 	if cb.isFenced() {
-		// If the leading code fence is indented N spaces,
-		// then up to N spaces of indentation are removed
-		n := 0
-		for n < cb.fenceIndent && n < len(s) && s[n] == ' ' {
-			n++
-		}
-		s = s[n:]
-
-		// until a closing code fence of the same type as the code block
-		// began with (backticks or tildes), and with at least as many backticks
-		// or tildes as the opening code fence.
-		if len(s) > 0 && s[0] == cb.fenceMarker {
-			n := 0
-			for n < len(s) && s[n] == cb.fenceMarker {
-				n++
-			}
-			if (n == len(s) || s[n] == '\n') && n >= cb.fenceLength {
-				cb.closed = true
-				return true
-			}
-		}
-	} else {
-		isIndented := false
-		if !isIndented {
-			isIndented = len(s) >= 4 && s[0] == ' ' && s[1] == ' ' && s[2] == ' ' && s[3] == ' '
-			if isIndented {
-				s = s[4:]
-			}
-		}
-		if !isIndented {
-			if len(s) == 1 && s[0] == '\n' {
-				isIndented = true
-			}
-		}
-		if !isIndented {
-			n, ns := skipPrefixSpaces(s, 3)
-			if len(ns) == 1 && ns[0] == '\n' {
-				isIndented = true
-				s = s[n:]
-			}
-		}
-		if !isIndented {
-			if len(s) >= 1 && s[0] == '\t' {
-				s = s[1:]
-				isIndented = true
-			}
-		}
-		if !isIndented {
-			cb.closed = true
-			return false
-		}
+		return cb.addLineFenced(s)
 	}
 
+	return cb.addLineIndented(s)
+}
+
+func (cb *CodeBlock) addLineFenced(s []rune) bool {
+	// If the leading code fence is indented N spaces,
+	// then up to N spaces of indentation are removed
+	n := 0
+	for n < cb.fenceIndent && n < len(s) && s[n] == ' ' {
+		n++
+	}
+	s = s[n:]
+
+	// until a closing code fence of the same type as the code block
+	// began with (backticks or tildes), and with at least as many backticks
+	// or tildes as the opening code fence.
+	if len(s) > 0 && s[0] == cb.fenceMarker {
+		n := 0
+		for n < len(s) && s[n] == cb.fenceMarker {
+			n++
+		}
+		if (n == len(s) || s[n] == '\n') && n >= cb.fenceLength {
+			cb.closed = true
+			return true
+		}
+	}
 	cb.lines = append(cb.lines, string(s))
 	return true
+}
+
+func (cb *CodeBlock) addLineIndented(s []rune) bool {
+	pos, _, indented := parseIndent(s)
+	if indented {
+		line := string(s[pos:])
+		cb.lines = append(cb.lines, line)
+		return true
+	}
+	if isBlankLine(s) {
+		cb.lines = append(cb.lines, "\n")
+		return true
+	}
+	return false
 }
 
 func (cb *CodeBlock) String() string {

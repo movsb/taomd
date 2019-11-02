@@ -37,7 +37,7 @@ func loadExamples(path string) []*Example {
 
 func testAll(examples []*Example, compare bool, save bool) {
 	var passedArray []*Example
-	failedMap := map[int]*Example{}
+	var failedArray []*Example
 
 	testFunc(examples,
 		func(example *Example) bool {
@@ -47,7 +47,7 @@ func testAll(examples []*Example, compare bool, save bool) {
 			if pass {
 				passedArray = append(passedArray, example)
 			} else {
-				failedMap[example.Example] = example
+				failedArray = append(failedArray, example)
 			}
 			dumpResult(example, html, pass)
 		},
@@ -85,9 +85,9 @@ func testAll(examples []*Example, compare bool, save bool) {
 		}
 		n = 0
 		fmt.Fprintf(os.Stderr, "\nBroken:\n\n")
-		for k := range failedMap {
-			if _, ok := oldPassed[k]; ok {
-				fmt.Fprintf(os.Stderr, "    %d\n", k)
+		for _, k := range failedArray {
+			if _, ok := oldPassed[k.Example]; ok {
+				fmt.Fprintf(os.Stderr, "    %d\n", k.Example)
 				n++
 			}
 		}

@@ -66,7 +66,7 @@ func main() {
 			testSections(examples, os.Args[i:]...)
 		case number:
 			numbers := []int{}
-			for _, arg := range os.Args[2:] {
+			for _, arg := range os.Args[i:] {
 				n, err := strconv.Atoi(arg)
 				if err != nil {
 					panic(err)

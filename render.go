@@ -157,21 +157,19 @@ func toHTML(block Blocker) string {
 
 			itemBlocks := item.(*ListItem).blocks
 
-			if typed.Tight {
-				addNewLine := true
-				if len(itemBlocks) > 0 {
-					if _, ok := itemBlocks[0].(*Paragraph); ok {
+			addNewLine := true
+			if len(itemBlocks) > 0 {
+				if _, ok := itemBlocks[0].(*Paragraph); ok {
+					if typed.Tight {
 						addNewLine = false
 					}
-				} else {
-					addNewLine = false
-				}
-				s += "<li>"
-				if addNewLine {
-					s += "\n"
 				}
 			} else {
-				s += "<li>\n"
+				addNewLine = false
+			}
+			s += "<li>"
+			if addNewLine {
+				s += "\n"
 			}
 
 			var lastParagraph *Paragraph

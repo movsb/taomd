@@ -11,6 +11,29 @@ import (
 
 var doc *Document
 
+func parseIndent(s []rune) (position int, column int, indented bool) {
+	column = 1
+	position = 0
+
+	for position < len(s) && column < 5 {
+		switch s[position] {
+		case ' ':
+			column++
+			position++
+			continue
+		case '\t':
+			column += 4 - (column-1)%4
+			position++
+			continue
+		}
+		break
+	}
+
+	indented = column >= 5
+
+	return
+}
+
 func skipPrefixSpaces(s []rune, max int) (int, []rune) {
 	n := 0
 	for len(s) > n && s[n] == ' ' {
@@ -46,8 +69,9 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 
 	os := s
 
-	_, n := peekSpaces(s, 4)
-	if n >= 0 && n < 4 {
+	n, _, indented := parseIndent(s)
+
+	if !indented {
 		s = s[n:]
 		if len(s) == 0 {
 			return false
@@ -137,7 +161,7 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 		p.texts = append(p.texts, string(s))
 		blocks = append(blocks, p)
 		return true
-	} else if n == 4 {
+	} else {
 		var cb *CodeBlock
 		if len(blocks) > 0 {
 			if pcb, ok := blocks[len(blocks)-1].(*CodeBlock); ok {
