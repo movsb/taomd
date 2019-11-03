@@ -51,6 +51,9 @@ func (bl *BlankLine) AddLine(p *Parser, s []rune) bool {
 // https://spec.commonmark.org/0.29/#thematic-breaks
 type HorizontalRule struct {
 	Marker rune
+
+	// temp for parse as setext heading
+	s []rune
 }
 
 func (hr *HorizontalRule) AddLine(p *Parser, s []rune) bool {

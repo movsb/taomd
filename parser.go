@@ -270,6 +270,7 @@ func tryParseHorizontalRule(c []rune, start rune) *HorizontalRule {
 	i := 0
 	loop := true
 	n := 0
+	oc := c
 
 	for loop && i < len(c) {
 		switch c[i] {
@@ -288,7 +289,7 @@ func tryParseHorizontalRule(c []rune, start rune) *HorizontalRule {
 	}
 
 	if _, ok := skipEnding(c[i:]); ok {
-		return &HorizontalRule{Marker: start}
+		return &HorizontalRule{Marker: start, s: oc}
 	}
 
 	return nil
@@ -2247,13 +2248,17 @@ func tryMergeSetextHeading(pbs *[]Blocker) {
 		}
 	case *HorizontalRule:
 		if typed.Marker == '-' && n >= 2 {
-			if p, ok := blocks[n-2].(*Paragraph); ok {
-				heading := Heading{
-					Level: 2,
-					text:  strings.Join(p.texts, ""),
+			// The setext heading underline cannot contain internal spaces
+			heading := tryParseSetextHeadingUnderline(typed.s)
+			if heading != nil {
+				if p, ok := blocks[n-2].(*Paragraph); ok {
+					heading := Heading{
+						Level: 2,
+						text:  strings.Join(p.texts, ""),
+					}
+					blocks[n-2] = &heading
+					blocks = blocks[:n-1]
 				}
-				blocks[n-2] = &heading
-				blocks = blocks[:n-1]
 			}
 		}
 	}
