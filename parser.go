@@ -1877,8 +1877,6 @@ func tryParseHtmlTag(c []rune) ([]rune, *HtmlTag) {
 }
 
 func tryParseHtmlBlock(c []rune) *HtmlBlock {
-	h := &HtmlBlock{}
-
 	i := 0
 	for i < len(c) && isWahitespace(c[i]) {
 		i++
@@ -1928,9 +1926,7 @@ func tryParseHtmlBlock(c []rune) *HtmlBlock {
 	switch c[i] {
 	// Start condition: 3
 	case '?':
-		h.Lines = append(h.Lines, c)
-		h.condition = 3
-		return h
+		return NewHtmlBlock(p, 3, c)
 	// Start condition: 6
 	case '/':
 		i++
@@ -1948,9 +1944,7 @@ func tryParseHtmlBlock(c []rune) *HtmlBlock {
 			// 7 complete closing tag
 			_, nc := skipPrefixSpaces(c[i:], -1)
 			if len(nc) > 1 && nc[0] == '>' && (nc[1] == '\n' || unicode.IsSpace(nc[1])) {
-				h.condition = 7
-				h.append(c)
-				return h
+				return NewHtmlBlock(p, 7, c)
 			}
 
 			return nil
@@ -1959,15 +1953,11 @@ func tryParseHtmlBlock(c []rune) *HtmlBlock {
 		skipWhitespaces(0)
 
 		if i == len(c) {
-			h.condition = 6
-			h.append(c)
-			return h
+			return NewHtmlBlock(p, 6, c)
 		}
 
 		if i+0 < len(c) && c[i+0] == '>' || i+1 < len(c) && c[i+0] == '/' && c[i+1] == '>' {
-			h.append(c)
-			h.condition = 6
-			return h
+			return NewHtmlBlock(p, 6, c)
 		}
 
 		return nil
@@ -1982,9 +1972,7 @@ func tryParseHtmlBlock(c []rune) *HtmlBlock {
 		case '[':
 			i++
 			if j := i; j+5 < len(c) && c[j+0] == 'C' && c[j+1] == 'D' && c[j+2] == 'A' && c[j+3] == 'T' && c[j+4] == 'A' && c[j+5] == '[' {
-				h.append(c)
-				h.condition = 5
-				return h
+				return NewHtmlBlock(p, 5, c)
 			}
 			return nil
 		case '-':
@@ -1992,18 +1980,10 @@ func tryParseHtmlBlock(c []rune) *HtmlBlock {
 			if i == len(c) || c[i] != '-' {
 				return nil
 			}
-			h.append(c)
-			h.condition = 2
-			// TODO this is a temp fix
-			if strings.Contains(string(c), "-->") {
-				h.closed = true
-			}
-			return h
+			return NewHtmlBlock(p, 2, c)
 		default:
 			if 'A' <= c[i] && c[i] <= 'Z' {
-				h.append(c)
-				h.condition = 4
-				return h
+				return NewHtmlBlock(p, 4, c)
 			}
 			return nil
 		}
@@ -2016,16 +1996,12 @@ func tryParseHtmlBlock(c []rune) *HtmlBlock {
 		i = j
 		if tagName == "script" || tagName == "pre" || tagName == "style" {
 			if i == len(c) || isWahitespace(c[i]) || c[i] == '>' {
-				h.append(c)
-				h.condition = 1
-				return h
+				return NewHtmlBlock(p, 1, c)
 			}
 		}
 		if _, ok := htmlBlockStartCondition6TagNames[strings.ToLower(tagName)]; ok {
 			if i == len(c) || isWahitespace(c[i]) || i+0 < len(c) && c[i+0] == '>' || i+1 < len(c) && c[i+0] == '/' && c[i+1] == '>' {
-				h.append(c)
-				h.condition = 6
-				return h
+				return NewHtmlBlock(p, 6, c)
 			}
 		}
 		// condition 7
@@ -2133,18 +2109,14 @@ func tryParseHtmlBlock(c []rune) *HtmlBlock {
 			if i < len(c) && !unicode.IsSpace(c[i]) {
 				return nil
 			}
-			h.condition = 7
-			h.append(c)
-			return h
+			return NewHtmlBlock(p, 7, c)
 		}
 
 		if c[i] == '>' {
 			i++
 			_, nc := skipPrefixSpaces(c[i:], -1)
 			if len(nc) == 0 || nc[0] == '\n' {
-				h.condition = 7
-				h.append(c)
-				return h
+				return NewHtmlBlock(p, 7, c)
 			}
 		}
 

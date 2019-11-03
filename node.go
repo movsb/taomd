@@ -183,6 +183,14 @@ type HtmlBlock struct {
 	closed    bool
 }
 
+// NewHtmlBlock news a HtmlBlock.
+func NewHtmlBlock(p *Parser, condition int, c []rune) *HtmlBlock {
+	h := HtmlBlock{}
+	h.condition = condition
+	h.AddLine(p, c)
+	return &h
+}
+
 func (hb *HtmlBlock) append(c []rune) {
 	hb.Lines = append(hb.Lines, c)
 }
