@@ -735,15 +735,24 @@ func (cb *CodeBlock) addLineIndented(s []rune) bool {
 }
 
 func (cb *CodeBlock) String() string {
-	// TODO fixed wrong blank lines added
-	if !cb.isFenced() {
-		n := len(cb.lines) - 1
-		for n >= 0 && isBlankLine([]rune(cb.lines[n])) {
-			n--
-		}
-		// n must > 0
-		cb.lines = cb.lines[:n+1]
+	if cb.isFenced() {
+		return strings.Join(cb.lines, "")
 	}
+
+	// indented code block starts from a blank line.
+	// So, there must be at least one non-blank line.
+
+	// Blank lines preceding or following an indented code block are not included in it
+	// TODO optimize blank line checking
+	i, j := 0, len(cb.lines)-1
+	for isBlankLine([]rune(cb.lines[i])) {
+		i++
+	}
+	for isBlankLine([]rune(cb.lines[j])) {
+		j--
+	}
+	cb.lines = cb.lines[i : j+1]
+
 	return strings.Join(cb.lines, "")
 }
 
