@@ -9,27 +9,38 @@ import (
 	"unicode/utf8"
 )
 
+// Parser is a markdown parser.
+type Parser struct {
+	tip Blocker
+
+	// Line Status
+	blank       bool // Is this line a blank line?
+	indentation int  // first non-space character indentation for current block start
+	indented    bool // Is first non-space character indented?
+	offset      int  // line offset
+	column      int  // line column
+}
+
 var doc *Document
+var p *Parser
 
+// column is start from 0, not common 1.
 func parseIndent(s []rune) (position int, column int, indented bool) {
-	column = 1
-	position = 0
-
-	for position < len(s) && column < 5 {
+	for position < len(s) && column < 4 {
 		switch s[position] {
 		case ' ':
 			column++
 			position++
 			continue
 		case '\t':
-			column += 4 - (column-1)%4
+			column += 4 - column%4
 			position++
 			continue
 		}
 		break
 	}
 
-	indented = column >= 5
+	indented = column >= 4
 
 	return
 }
@@ -63,7 +74,7 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 		*pBlocks = blocks
 	}()
 
-	if len(blocks) > 0 && blocks[len(blocks)-1].AddLine(s) {
+	if len(blocks) > 0 && blocks[len(blocks)-1].AddLine(p, s) {
 		return true
 	}
 
@@ -91,11 +102,11 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 
 		if _, ok := in(s, '=', '-'); ok {
 			if heading := tryParseSetextHeadingUnderline(s); heading != nil {
-				if len(blocks) > 0 {
-					if _, ok := blocks[len(blocks)-1].(*Paragraph); ok {
-						blocks = append(blocks, heading)
-						return true
-					}
+				// The lines of text must be such that, were they not followed by the setext heading underline, they would be interpreted as a paragraph.
+				// The setext heading underline cannot be a lazy continuation line in a list item or block quote.
+				if pp, ok := p.tip.(*Paragraph); ok && !pp.lazying {
+					blocks = append(blocks, heading)
+					return true
 				}
 			}
 		}
@@ -141,7 +152,7 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 		maybeListStart := '0' <= s[0] && s[0] <= '9'
 		if maybeListMarker || maybeListStart {
 			list := &List{}
-			if list.AddLine(os) {
+			if list.AddLine(p, os) {
 				blocks = append(blocks, list)
 				return true
 			}
@@ -172,13 +183,10 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 			cb = &CodeBlock{}
 			blocks = append(blocks, cb)
 		}
-		return cb.AddLine(s)
+		return cb.AddLine(p, s)
 	}
 
 	return false
-}
-
-type Parser struct {
 }
 
 func isSpace(c rune) bool {
@@ -243,12 +251,13 @@ var ls *LineScanner
 
 func Parse(in io.Reader) *Document {
 	doc = &Document{}
+	p = &Parser{}
 	doc.links = make(map[string]*LinkReferenceDefinition)
 
 	ls = NewLineScanner(in)
 
 	for ls.Scan() {
-		doc.AddLine(ls.Text())
+		doc.AddLine(p, ls.Text())
 		tryMergeSetextHeading(&doc.blocks)
 	}
 

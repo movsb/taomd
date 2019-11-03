@@ -7,7 +7,7 @@ import (
 )
 
 type Blocker interface {
-	AddLine(s []rune) bool
+	AddLine(p *Parser, s []rune) bool
 }
 
 type Document struct {
@@ -15,8 +15,9 @@ type Document struct {
 	links  map[string]*LinkReferenceDefinition
 }
 
-func (doc *Document) AddLine(s []rune) {
-	addLine(&doc.blocks, s)
+func (doc *Document) AddLine(p *Parser, s []rune) bool {
+	p.tip = doc
+	return addLine(&doc.blocks, s)
 }
 
 func (doc *Document) parseInlines() {
@@ -42,7 +43,7 @@ func (doc *Document) refLink(label string, enclosed bool) (string, string, bool)
 type BlankLine struct {
 }
 
-func (bl *BlankLine) AddLine(s []rune) bool {
+func (bl *BlankLine) AddLine(p *Parser, s []rune) bool {
 	return false
 }
 
@@ -52,7 +53,7 @@ type HorizontalRule struct {
 	Marker rune
 }
 
-func (hr *HorizontalRule) AddLine(s []rune) bool {
+func (hr *HorizontalRule) AddLine(p *Parser, s []rune) bool {
 	return false
 }
 
@@ -61,14 +62,16 @@ type Paragraph struct {
 	Tight   bool
 	Inlines []Inline
 	closed  bool
+	lazying bool
 }
 
-func (p *Paragraph) AddLine(s []rune) bool {
-	if p.closed {
+func (pp *Paragraph) AddLine(p *Parser, s []rune) bool {
+	if pp.closed {
 		return false
 	}
 
 	var blocks []Blocker
+	p.tip = pp
 	if !addLine(&blocks, s) {
 		panic("won't happen")
 	}
@@ -87,56 +90,58 @@ func (p *Paragraph) AddLine(s []rune) bool {
 	case *Paragraph:
 		// A sequence of non-blank lines that cannot be interpreted as ...
 		// ... other kinds of blocks forms a paragraph.
-		p.texts = append(p.texts, trimLeft(typed.texts[0]))
+		pp.texts = append(pp.texts, trimLeft(typed.texts[0]))
 		return true
 	case *CodeBlock:
 		// An indented code block cannot interrupt a paragraph
 		if !typed.isFenced() {
 			// s: typed.lines[0] is trimmed 4 spaces at the beginning, don't use.
-			p.texts = append(p.texts, trimLeft(string(s)))
+			pp.texts = append(pp.texts, trimLeft(string(s)))
 			return true
 		}
 	case *List:
 		// In order to solve of unwanted lists in paragraphs with hard-wrapped numerals,
 		// we allow only lists starting with 1 to interrupt paragraphs.
 		if typed.Ordered && typed.Start != 1 {
-			p.texts = append(p.texts, trimLeft(string(s)))
+			pp.texts = append(pp.texts, trimLeft(string(s)))
 			return true
 		}
 		// However, an empty list item cannot interrupt a paragraph
 		if len(typed.Items) == 1 {
 			if subItem, ok := typed.Items[0].(*ListItem); ok {
 				if len(subItem.blocks) == 0 {
-					p.texts = append(p.texts, trimLeft(string(s)))
+					pp.texts = append(pp.texts, trimLeft(string(s)))
 					return true
 				}
 			}
 		}
 	case *LinkReferenceDefinition:
 		// A link reference definition cannot interrupt a paragraph.
-		p.texts = append(p.texts, trimLeft(string(s)))
+		pp.texts = append(pp.texts, trimLeft(string(s)))
 		return true
 	case *HtmlBlock:
 		// HTML blocks of type 7 cannot interrupt a paragraph
 		if typed.condition == 7 {
-			p.texts = append(p.texts, trimLeft(string(s)))
+			pp.texts = append(pp.texts, trimLeft(string(s)))
 			return true
 		}
 	}
 
-	p.closed = true
+	pp.closed = true
 	return false
 }
 
-func (p *Paragraph) addLaziness(s []rune) bool {
+func (pp *Paragraph) addLaziness(p *Parser, s []rune) bool {
 	_, s = skipPrefixSpaces(s, -1)
-	return p.AddLine(s)
+	pp.lazying = true
+	defer func() { pp.lazying = false }()
+	return pp.AddLine(p, s)
 }
 
-func (p *Paragraph) parseInlines() {
-	raw := strings.Join(p.texts, "")
+func (pp *Paragraph) parseInlines() {
+	raw := strings.Join(pp.texts, "")
 	raw = strings.TrimSpace(raw)
-	p.Inlines = parseInlines(raw)
+	pp.Inlines = parseInlines(raw)
 }
 
 type Line struct {
@@ -149,7 +154,7 @@ type Heading struct {
 	text    string
 }
 
-func (h *Heading) AddLine(s []rune) bool {
+func (h *Heading) AddLine(p *Parser, s []rune) bool {
 	return false
 }
 
@@ -163,7 +168,7 @@ type SetextHeading struct {
 	level int
 }
 
-func (h *SetextHeading) AddLine(s []rune) bool {
+func (h *SetextHeading) AddLine(p *Parser, s []rune) bool {
 	return false
 }
 
@@ -179,7 +184,7 @@ func (hb *HtmlBlock) append(c []rune) {
 	hb.Lines = append(hb.Lines, c)
 }
 
-func (hb *HtmlBlock) AddLine(c []rune) bool {
+func (hb *HtmlBlock) AddLine(p *Parser, c []rune) bool {
 	if hb.closed {
 		return false
 	}
@@ -233,13 +238,13 @@ type BlockQuote struct {
 	blocks []Blocker
 }
 
-func (bq *BlockQuote) AddLine(s []rune) bool {
+func (bq *BlockQuote) AddLine(p *Parser, s []rune) bool {
 	_, ok := tryParseBlockQuote(s, bq)
 	if ok {
 		tryMergeSetextHeading(&bq.blocks)
 		return true
 	}
-	return bq.addLaziness(s)
+	return bq.addLaziness(p, s)
 }
 
 func (bq *BlockQuote) parseInlines() {
@@ -250,17 +255,17 @@ func (bq *BlockQuote) parseInlines() {
 	}
 }
 
-func (bq *BlockQuote) addLaziness(s []rune) bool {
+func (bq *BlockQuote) addLaziness(p *Parser, s []rune) bool {
 	if len(bq.blocks) == 0 {
 		return false
 	}
 	switch typed := bq.blocks[len(bq.blocks)-1].(type) {
 	case *List:
-		return typed.addLaziness(s)
+		return typed.addLaziness(p, s)
 	case *BlockQuote:
-		return typed.addLaziness(s)
+		return typed.addLaziness(p, s)
 	case *Paragraph:
-		return typed.addLaziness(s)
+		return typed.addLaziness(p, s)
 	}
 	return false
 }
@@ -382,7 +387,7 @@ func (l *List) isHorizontalRule(s []rune) bool {
 	return false
 }
 
-func (l *List) AddLine(s []rune) bool {
+func (l *List) AddLine(p *Parser, s []rune) bool {
 	if l.closed {
 		return false
 	}
@@ -405,7 +410,7 @@ func (l *List) AddLine(s []rune) bool {
 	}
 
 	if lastItem != nil {
-		if lastItem.AddLine(s) {
+		if lastItem.AddLine(p, s) {
 			if isBlankLine(s) {
 				l.Items = append(l.Items, &BlankLine{})
 				return true
@@ -435,7 +440,7 @@ func (l *List) AddLine(s []rune) bool {
 	if !ok {
 		// return false
 		if lastItem != nil {
-			return lastItem.addLaziness(os)
+			return lastItem.addLaziness(p, os)
 		}
 		return false
 	}
@@ -544,10 +549,10 @@ func (l *List) parseInlines() {
 	}
 }
 
-func (l *List) addLaziness(s []rune) bool {
+func (l *List) addLaziness(p *Parser, s []rune) bool {
 	if len(l.Items) > 0 {
 		if lastItem, ok := l.Items[len(l.Items)-1].(*ListItem); ok {
-			return lastItem.addLaziness(s)
+			return lastItem.addLaziness(p, s)
 		}
 	}
 	return false
@@ -560,28 +565,27 @@ type ListItem struct {
 	closed       bool
 }
 
-func (li *ListItem) addLaziness(s []rune) bool {
+func (li *ListItem) addLaziness(p *Parser, s []rune) bool {
 	if len(li.blocks) > 0 {
 		switch typed := li.blocks[len(li.blocks)-1].(type) {
 		case *List:
-			return typed.addLaziness(s)
+			return typed.addLaziness(p, s)
 		case *Paragraph:
-			return typed.addLaziness(s)
+			return typed.addLaziness(p, s)
 		case *BlockQuote:
-			return typed.addLaziness(s)
+			return typed.addLaziness(p, s)
 		}
 	}
 	return false
 }
 
-func (li *ListItem) AddLine(s []rune) bool {
+func (li *ListItem) AddLine(p *Parser, s []rune) bool {
 	if li.closed {
 		return false
 	}
 
 	if len(s) == 1 && s[0] == '\n' {
-		if len(li.blocks) > 0 && li.blocks[len(li.blocks)-1].AddLine(s) {
-			// li.blocks = append(li.blocks, &BlankLine{})
+		if len(li.blocks) > 0 && li.blocks[len(li.blocks)-1].AddLine(p, s) {
 			return true
 		}
 
@@ -682,7 +686,7 @@ func (cb *CodeBlock) isFenced() bool {
 	return cb.fenceLength > 0
 }
 
-func (cb *CodeBlock) AddLine(s []rune) bool {
+func (cb *CodeBlock) AddLine(p *Parser, s []rune) bool {
 	if cb.closed {
 		return false
 	}
@@ -770,7 +774,7 @@ type LinkReferenceDefinition struct {
 	Title string
 }
 
-func (l *LinkReferenceDefinition) AddLine(c []rune) bool {
+func (l *LinkReferenceDefinition) AddLine(p *Parser, c []rune) bool {
 	return false
 }
 

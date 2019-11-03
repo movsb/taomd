@@ -12,4 +12,4 @@ A markdown implementation.
 - https://spec.commonmark.org/dingus/
 - https://spec.commonmark.org/dingus/?text=
 
-**total: 649, passed: 610, failed: 39, skipped: 0**
+**total: 649, passed: 618, failed: 31, skipped: 0**
