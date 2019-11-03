@@ -689,6 +689,29 @@ func (cb *CodeBlock) isFenced() bool {
 	return cb.fenceLength > 0
 }
 
+func (cb *CodeBlock) isClosingFence(s []rune) bool {
+	i := 0
+
+	// Closing fences may be indented by 0-3 spaces, and their
+	// indentation need not match that of the opening fence.
+	for i < 3 && isSpace(s[i]) {
+		i++
+	}
+
+	// until a closing code fence of the same type as the code block
+	// began with (backticks or tildes), and with at least as many backticks
+	// or tildes as the opening code fence.
+	n := i
+	for n < len(s) && s[n] == cb.fenceMarker {
+		n++
+	}
+	if n-i >= cb.fenceLength && isBlankLine(s[n:]) {
+		return true
+	}
+
+	return false
+}
+
 func (cb *CodeBlock) AddLine(p *Parser, s []rune) bool {
 	if cb.closed {
 		return false
@@ -702,6 +725,11 @@ func (cb *CodeBlock) AddLine(p *Parser, s []rune) bool {
 }
 
 func (cb *CodeBlock) addLineFenced(s []rune) bool {
+	if cb.isClosingFence(s) {
+		cb.closed = true
+		return true
+	}
+
 	// If the leading code fence is indented N spaces,
 	// then up to N spaces of indentation are removed
 	n := 0
@@ -710,19 +738,6 @@ func (cb *CodeBlock) addLineFenced(s []rune) bool {
 	}
 	s = s[n:]
 
-	// until a closing code fence of the same type as the code block
-	// began with (backticks or tildes), and with at least as many backticks
-	// or tildes as the opening code fence.
-	if len(s) > 0 && s[0] == cb.fenceMarker {
-		n := 0
-		for n < len(s) && s[n] == cb.fenceMarker {
-			n++
-		}
-		if (n == len(s) || s[n] == '\n') && n >= cb.fenceLength {
-			cb.closed = true
-			return true
-		}
-	}
 	cb.lines = append(cb.lines, string(s))
 	return true
 }
