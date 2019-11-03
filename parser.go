@@ -308,7 +308,7 @@ func tryParseAtxHeading(c []rune) *Heading {
 	}
 
 	// not followed by a space
-	if c[i] != ' ' {
+	if c[i] != ' ' && c[i] != '\t' {
 		return nil
 	}
 
