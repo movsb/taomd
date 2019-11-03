@@ -392,14 +392,6 @@ func (l *List) AddLine(p *Parser, s []rune) bool {
 		return false
 	}
 
-	// If any line is a thematic break then that line is not a list item.
-	//
-	// When both a thematic break and a list item are possible
-	// interpretations of a line, the thematic break takes precedence
-	if l.isHorizontalRule(s) {
-		//return false
-	}
-
 	var lastItem *ListItem
 
 	for i := len(l.Items) - 1; i >= 0; i-- {
@@ -458,6 +450,14 @@ func (l *List) AddLine(p *Parser, s []rune) bool {
 		l.Ordered = list.Ordered
 		l.MarkerChar = list.MarkerChar
 		l.Start = list.Start
+	}
+
+	// If any line is a thematic break then that line is not a list item.
+	//
+	// When both a thematic break and a list item are possible
+	// interpretations of a line, the thematic break takes precedence
+	if l.isHorizontalRule(os) {
+		return false
 	}
 
 	lastItem = &ListItem{
