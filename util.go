@@ -42,14 +42,18 @@ func toCharStr(s string) (c string) {
 }
 
 func HexDump(s string) (int, func(max int) string) {
-	lines := strings.Split(s, "\n")
+	lines := strings.SplitAfter(s, "\n")
+	// remove last empty string
+	if n := len(lines); n > 0 && len(lines[n-1]) == 0 {
+		lines = lines[0 : n-1]
+	}
+
 	max := 0
 
 	converted := make([]string, len(lines))
 	hexed := make([]string, len(lines))
 
 	for i, line := range lines {
-		line += "\n"
 		converted[i] = toCharStr(line)
 		hexed[i] = toHexStr(line)
 		if n := utf8.RuneCountInString(converted[i]); n > max {
