@@ -11,6 +11,8 @@ import (
 
 // Parser is a markdown parser.
 type Parser struct {
+	doc *Document
+
 	tip Blocker
 
 	// Line Status
@@ -158,16 +160,6 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 			}
 		}
 
-		if s[0] == '[' {
-			if link := tryParseLinkReferenceDefinition(s); link != nil {
-				label := strings.ToLower(link.Label)
-				if _, ok := doc.links[label]; !ok {
-					doc.links[label] = link
-				}
-				return true
-			}
-		}
-
 		p := &Paragraph{}
 		p.texts = append(p.texts, string(s))
 		blocks = append(blocks, p)
@@ -252,6 +244,8 @@ var ls *LineScanner
 func Parse(in io.Reader) *Document {
 	doc = &Document{}
 	p = &Parser{}
+	p.doc = doc
+
 	doc.links = make(map[string]*LinkReferenceDefinition)
 
 	ls = NewLineScanner(in)
@@ -2126,67 +2120,88 @@ func tryParseHtmlBlock(c []rune) *HtmlBlock {
 	return nil
 }
 
-func tryParseLinkReferenceDefinition(c []rune) *LinkReferenceDefinition {
+// tryParseLinkReferenceDefinition parses link reference definition from a paragraph.
+func tryParseLinkReferenceDefinition(c []rune) ([]rune, *LinkReferenceDefinition) {
 	i := 0
 	l := LinkReferenceDefinition{}
 
 	nc, label, ok := parseLinkLabel(c)
 	if !ok || label == "[]" {
-		return nil
+		return nil, nil
 	}
 	l.Label = label
 	c = nc
 	i = 0
 
+	// followed by a colon (:)
 	if i == len(c) || c[i] != ':' {
-		return nil
+		return nil, nil
 	}
 
 	i++ // skip ':'
 
-	for i < len(c) && isWahitespace(c[i]) {
+	// optional whitespace (including up to one line ending)
+	for i < len(c) && any(c[i], ' ', '\t') {
 		i++
 	}
-
 	if i == len(c) {
-		return nil
+		return nil, nil
+	}
+	if c[i] == '\n' {
+		i++
 	}
 
 	nc, dest, ok := parseLinkDestination(c[i:])
 	if !ok {
-		return nil
+		return nil, nil
 	}
 
 	l.Destination = dest
 	c = nc
 	i = 0
 
-	for i < len(c) && isWahitespace(c[i]) {
+	for i < len(c) && any(c[i], ' ', '\t') {
 		i++
 	}
-
 	if i == len(c) {
-		return &l
+		return c[i:], &l
+	}
+	// if it is present must be separated from the link destination by whitespace
+	if c[i] != '\n' && i < 1 {
+		return nil, nil
+	}
+
+	titleAtNewLine := false
+
+	if c[i] == '\n' {
+		i++
+		titleAtNewLine = true
 	}
 
 	nc, title, ok := parseLinkTitle(c[i:])
 	if !ok {
-		return nil
+		if titleAtNewLine {
+			return c[i:], &l
+		}
+		return nil, nil
 	}
 
 	l.Title = title
 	c = nc
 	i = 0
 
-	for i < len(c) && isWahitespace(c[i]) {
+	for i < len(c) && any(c[i], ' ', '\t') {
 		i++
 	}
 
-	if i != len(c) {
-		return nil
+	if i == len(c) || c[i] == '\n' {
+		if c[i] == '\n' {
+			i++
+		}
+		return c[i:], &l
 	}
 
-	return &l
+	return nil, nil
 }
 
 func tryMergeSetextHeading(pbs *[]Blocker) {

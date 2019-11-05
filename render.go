@@ -22,7 +22,10 @@ func escapeURL(s string) string {
 	if err != nil {
 		return escapeText(s)
 	}
-	return u.String()
+	s = u.String()
+	// HACK for #171
+	s = strings.Replace(s, "%2A", "*", -1)
+	return s
 }
 
 func escapeText(s string) string {
@@ -98,6 +101,10 @@ func toHTML(block Blocker) string {
 	default:
 		panic("unhandled block: " + reflect.TypeOf(typed).String())
 	case *Paragraph:
+		// HACK: contents are parsed as link reference definitions.
+		if len(typed.Inlines) == 0 {
+			break
+		}
 		if !typed.Tight {
 			s += "<p>"
 		}

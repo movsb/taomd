@@ -131,7 +131,27 @@ func (pp *Paragraph) AddLine(p *Parser, s []rune) bool {
 	}
 
 	pp.closed = true
+	pp.parseLinkDestinations(p)
 	return false
+}
+
+func (pp *Paragraph) parseLinkDestinations(p *Parser) bool {
+	raw := []rune(strings.Join(pp.texts, ""))
+	for {
+		remain, link := tryParseLinkReferenceDefinition(raw)
+		if link == nil {
+			break
+		}
+
+		lower := strings.ToLower(link.Label)
+		if _, ok := p.doc.links[lower]; !ok {
+			p.doc.links[lower] = link
+		}
+
+		raw = remain
+	}
+	pp.texts = []string{string(raw)}
+	return len(raw) == 0
 }
 
 func (pp *Paragraph) addLaziness(p *Parser, s []rune) bool {
