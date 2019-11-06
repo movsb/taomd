@@ -28,6 +28,19 @@ func (doc *Document) parseInlines() {
 	}
 }
 
+func (doc *Document) parseDefinitions() {
+	for _, block := range doc.blocks {
+		switch t := block.(type) {
+		case *Paragraph:
+			t.parseDefinitions()
+		case *List:
+			t.parseDefinitions()
+		case *BlockQuote:
+			t.parseDefinitions()
+		}
+	}
+}
+
 func (doc *Document) refLink(label string, enclosed bool) (string, string, bool) {
 	if !enclosed {
 		label = "[" + label + "]"
@@ -131,11 +144,11 @@ func (pp *Paragraph) AddLine(p *Parser, s []rune) bool {
 	}
 
 	pp.closed = true
-	pp.parseLinkDestinations(p)
+	//pp.parseDefinitions(p)
 	return false
 }
 
-func (pp *Paragraph) parseLinkDestinations(p *Parser) bool {
+func (pp *Paragraph) parseDefinitions() bool {
 	raw := []rune(strings.Join(pp.texts, ""))
 	for {
 		remain, link := tryParseLinkReferenceDefinition(raw)
@@ -269,6 +282,17 @@ type BlockQuote struct {
 	blocks []Blocker
 }
 
+func (bq *BlockQuote) parseDefinitions() {
+	for _, block := range bq.blocks {
+		switch it := block.(type) {
+		case *Paragraph:
+			it.parseDefinitions()
+		case *List:
+			it.parseDefinitions()
+		}
+	}
+}
+
 func (bq *BlockQuote) AddLine(p *Parser, s []rune) bool {
 	_, ok := tryParseBlockQuote(s, bq)
 	if ok {
@@ -396,6 +420,24 @@ func (l *List) parseMarker(s []rune) (remain []rune, list *List, prefixSpaces in
 		return s[1:], list, prefixSpaces, prefixWidth + 1, true
 	default:
 		return s[n:], list, prefixSpaces, prefixWidth + n, true
+	}
+}
+
+func (l *List) parseDefinitions() {
+	for _, item := range l.Items {
+		switch t := item.(type) {
+		case *ListItem:
+			for _, block := range t.blocks {
+				switch it := block.(type) {
+				case *Paragraph:
+					it.parseDefinitions()
+				case *List:
+					it.parseDefinitions()
+				case *BlockQuote:
+					it.parseDefinitions()
+				}
+			}
+		}
 	}
 }
 

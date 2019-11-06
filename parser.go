@@ -255,6 +255,7 @@ func Parse(in io.Reader) *Document {
 		tryMergeSetextHeading(&doc.blocks)
 	}
 
+	doc.parseDefinitions()
 	doc.parseInlines()
 
 	return doc
@@ -2178,6 +2179,8 @@ func tryParseLinkReferenceDefinition(c []rune) ([]rune, *LinkReferenceDefinition
 		titleAtNewLine = true
 	}
 
+	beforeTitle := c[i:]
+
 	nc, title, ok := parseLinkTitle(c[i:])
 	if !ok {
 		if titleAtNewLine {
@@ -2201,7 +2204,13 @@ func tryParseLinkReferenceDefinition(c []rune) ([]rune, *LinkReferenceDefinition
 		return c[i:], &l
 	}
 
-	return nil, nil
+	// for 178
+	if !titleAtNewLine {
+		return nil, nil
+	}
+
+	l.Title = ""
+	return beforeTitle, &l
 }
 
 func tryMergeSetextHeading(pbs *[]Blocker) {
@@ -2222,15 +2231,15 @@ func tryMergeSetextHeading(pbs *[]Blocker) {
 			return
 		}
 		if p, ok := blocks[n-2].(*Paragraph); ok {
-			heading := Heading{
-				Level: typed.level,
-				text:  strings.Join(p.texts, ""),
-			}
-			blocks[n-2] = &heading
-			blocks = blocks[:n-1]
-		} else {
-			blocks[n-1] = &Paragraph{
-				texts: []string{string(typed.line)},
+			p.parseDefinitions()
+			if len(p.texts) > 0 && len(p.texts[0]) > 0 {
+				heading := Heading{
+					Level: typed.level,
+					text:  strings.Join(p.texts, ""),
+				}
+				blocks[n-2] = &heading
+				blocks = blocks[:n-1]
+				return
 			}
 		}
 	case *HorizontalRule:
@@ -2239,14 +2248,24 @@ func tryMergeSetextHeading(pbs *[]Blocker) {
 			heading := tryParseSetextHeadingUnderline(typed.s)
 			if heading != nil {
 				if p, ok := blocks[n-2].(*Paragraph); ok {
-					heading := Heading{
-						Level: 2,
-						text:  strings.Join(p.texts, ""),
+					p.parseDefinitions()
+					if len(p.texts) > 0 && len(p.texts[0]) > 0 {
+						heading := Heading{
+							Level: 2,
+							text:  strings.Join(p.texts, ""),
+						}
+						blocks[n-2] = &heading
+						blocks = blocks[:n-1]
+						return
 					}
-					blocks[n-2] = &heading
-					blocks = blocks[:n-1]
 				}
 			}
+		}
+	}
+	switch typed := blocks[n-1].(type) {
+	case *SetextHeading:
+		blocks[n-1] = &Paragraph{
+			texts: []string{string(typed.line)},
 		}
 	}
 }
