@@ -156,6 +156,7 @@ func urlEncode(s string) string {
 	}
 
 	var buf bytes.Buffer
+	buf.Grow(len(s) * 2)
 
 	for i := 0; i < len(s); {
 		if isHexDigit(s[i]) || strings.IndexByte(";/?:@&=+$,-_.!~*'()#", s[i]) != -1 {
