@@ -2,7 +2,6 @@ package taomd
 
 import (
 	"fmt"
-	"net/url"
 	"reflect"
 	"strings"
 )
@@ -14,17 +13,6 @@ func Render(doc *Document) string {
 		s += toHTML(block)
 	}
 
-	return s
-}
-
-func escapeURL(s string) string {
-	u, err := url.Parse(s)
-	if err != nil {
-		return escapeText(s)
-	}
-	s = u.String()
-	// HACK for #171
-	s = strings.Replace(s, "%2A", "*", -1)
 	return s
 }
 
@@ -45,7 +33,7 @@ func toInline(inline Inline) string {
 	case *Text:
 		s += escapeText(it.Text)
 	case *Link:
-		s += fmt.Sprintf(`<a href="%s"`, escapeURL(it.Link))
+		s += fmt.Sprintf(`<a href="%s"`, escapeText(urlEncode(it.Link)))
 		if it.Title != "" {
 			s += fmt.Sprintf(` title="%s"`, escapeText(it.Title))
 		}
@@ -55,7 +43,7 @@ func toInline(inline Inline) string {
 		}
 		s += "</a>"
 	case *Image:
-		s += fmt.Sprintf(`<img src="%s"`, escapeURL(it.Link))
+		s += fmt.Sprintf(`<img src="%s"`, escapeText(urlEncode(it.Link)))
 		s += fmt.Sprintf(` alt="%s"`, escapeText(it.Alt))
 		if it.Title != "" {
 			s += fmt.Sprintf(` title="%s"`, escapeText(it.Title))

@@ -143,3 +143,41 @@ func (ls *LineScanner) Text() []rune {
 func (ls *LineScanner) PutBack(s []rune) {
 	ls.buffers.PushFront(s)
 }
+
+// Percent-encode a string, avoiding double encoding.
+// Don't touch /a-zA-Z0-9/ + excluded chars + /%[a-fA-F0-9]{2}/ (if not disabled).
+// Bad character not processed.
+// Partially implemented https://github.com/markdown-it/mdurl
+func urlEncode(s string) string {
+	const hexDigits = "0123456789ABCDEF"
+
+	isHexDigit := func(b byte) bool {
+		return 'a' <= b && b <= 'z' || 'A' <= b && b <= 'Z' || '0' <= b && b <= '9'
+	}
+
+	var buf bytes.Buffer
+
+	for i := 0; i < len(s); {
+		if isHexDigit(s[i]) || strings.IndexByte(";/?:@&=+$,-_.!~*'()#", s[i]) != -1 {
+			buf.WriteByte(s[i])
+			i++
+			continue
+		}
+		if s[i] == '%' {
+			if i+2 < len(s) && isHexDigit(s[i+1]) && isHexDigit(s[i+2]) {
+				buf.WriteByte('%')
+				buf.WriteByte(s[i+1])
+				buf.WriteByte(s[i+2])
+				i += 3
+				continue
+			}
+		}
+
+		buf.WriteByte('%')
+		buf.WriteByte(hexDigits[s[i]>>4])
+		buf.WriteByte(hexDigits[s[i]&0x0F])
+		i++
+	}
+
+	return buf.String()
+}
