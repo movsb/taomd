@@ -139,14 +139,24 @@ func testSections(examples []*Example, sections ...string) {
 func testFunc(examples []*Example, predicate func(example *Example) bool, result func(examle *Example, html string, pass bool)) {
 	var total, passed, failed, skipped int
 
+	pcall := func(n int, md string) string {
+		defer func() {
+			if e := recover(); e != nil {
+				fmt.Fprintln(os.Stderr, "example number:", n)
+				panic(e)
+			}
+		}()
+		doc := taomd.Parse(strings.NewReader(md))
+		return taomd.Render(doc)
+	}
+
 	for _, example := range examples {
 		total++
 		if !predicate(example) {
 			skipped++
 			continue
 		}
-		doc := taomd.Parse(strings.NewReader(example.Markdown))
-		html := taomd.Render(doc)
+		html := pcall(example.Example, example.Markdown)
 		ok := html == example.HTML
 		if ok {
 			passed++
