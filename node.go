@@ -16,6 +16,7 @@ type Document struct {
 }
 
 func (doc *Document) AddLine(p *Parser, s []rune) bool {
+	p.reset(s)
 	p.tip = doc
 	return addLine(&doc.blocks, s)
 }
@@ -813,9 +814,9 @@ func (cb *CodeBlock) addLineFenced(s []rune) bool {
 }
 
 func (cb *CodeBlock) addLineIndented(s []rune) bool {
-	pos, _, indented := parseIndent(s)
-	if indented {
-		line := string(s[pos:])
+	if p.indented {
+		advanceOffset(4, true)
+		line := string(s[p.offset:])
 		cb.lines = append(cb.lines, line)
 		return true
 	}

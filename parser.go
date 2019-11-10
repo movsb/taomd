@@ -16,35 +16,88 @@ type Parser struct {
 	tip Blocker
 
 	// Line Status
-	blank       bool // Is this line a blank line?
-	indentation int  // first non-space character indentation for current block start
-	indented    bool // Is first non-space character indented?
-	offset      int  // line offset
-	column      int  // line column
+	blank                bool // Is this line a blank line?
+	indentation          int  // first non-space character indentation for current block start
+	indented             bool // Is first non-space character indented?
+	offset               int  // line offset
+	column               int  // line column
+	nextNonspace         int
+	nextNonspaceColumn   int
+	partiallyComsumedTab bool
+	line                 []rune
+}
+
+func (p *Parser) reset(line []rune) {
+	p.line = line
+	p.blank = false
+	p.offset = 0
+	p.column = 0
+	p.partiallyComsumedTab = false
 }
 
 var doc *Document
 var p *Parser
 
-// column is start from 0, not common 1.
-func parseIndent(s []rune) (position int, column int, indented bool) {
-	for position < len(s) && column < 4 {
-		switch s[position] {
+// column starts from 0, not common 1.
+func findNextNonspace(s []rune) {
+	offset := p.offset
+	column := p.column
+
+	for offset < len(p.line) {
+		switch p.line[offset] {
 		case ' ':
+			offset++
 			column++
-			position++
 			continue
 		case '\t':
+			offset++
 			column += 4 - column%4
-			position++
 			continue
 		}
 		break
 	}
 
-	indented = column >= 4
+	p.blank = offset >= len(p.line) || (p.line[offset] == '\n')
+	p.nextNonspace = offset
+	p.nextNonspaceColumn = column
+	p.indentation = column - p.column
+	p.indented = p.indentation >= 4
+}
 
-	return
+func advanceNextNonspace() {
+	p.offset = p.nextNonspace
+	p.column = p.nextNonspaceColumn
+}
+
+func advanceOffset(count int, column bool) {
+	for count > 0 && p.offset < len(p.line) {
+		switch p.line[p.offset] {
+		case '\t':
+			charsToTab := 4 - p.column%4
+			if column {
+				p.partiallyComsumedTab = charsToTab > count
+				charsToAdvance := charsToTab
+				if charsToTab > count {
+					charsToAdvance = count
+				}
+				p.column += charsToAdvance
+				if !p.partiallyComsumedTab {
+					p.offset++
+				}
+				count -= charsToAdvance
+			} else {
+				p.partiallyComsumedTab = false
+				p.column += charsToTab
+				p.offset++
+				count--
+			}
+		default:
+			p.partiallyComsumedTab = false
+			p.offset++
+			p.column++
+			count--
+		}
+	}
 }
 
 func skipPrefixSpaces(s []rune, max int) (int, []rune) {
@@ -82,13 +135,10 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 
 	os := s
 
-	n, _, indented := parseIndent(s)
+	findNextNonspace(s)
 
-	if !indented {
-		s = s[n:]
-		if len(s) == 0 {
-			return false
-		}
+	if !p.indented {
+		s = s[p.nextNonspace:]
 
 		if len(s) == 1 && s[0] == '\n' {
 			blocks = append(blocks, &BlankLine{})
@@ -122,7 +172,7 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 		}
 
 		if r, ok := in(s, '`', '~'); ok {
-			cb := tryParseFencedCodeBlockStart(s, r, n)
+			cb := tryParseFencedCodeBlockStart(s, r, p.offset)
 			if cb != nil {
 				blocks = append(blocks, cb)
 				return true
@@ -175,7 +225,7 @@ func addLine(pBlocks *[]Blocker, s []rune) bool {
 			cb = &CodeBlock{}
 			blocks = append(blocks, cb)
 		}
-		return cb.AddLine(p, s)
+		return cb.AddLine(p, os)
 	}
 
 	return false
