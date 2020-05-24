@@ -9,11 +9,89 @@ import (
 	"unicode/utf8"
 )
 
+var ENTITY = "&(?:#x[a-f0-9]{1,6}|#[0-9]{1,7}|[a-z][a-z0-9]{1,31});"
+var TAGNAME = `[A-Za-z][A-Za-z0-9-]*`
+var ATTRIBUTENAME = `[a-zA-Z_:][a-zA-Z0-9:._-]*`
+var UNQUOTEDVALUE = "[^\"'=<>`\\x00-\\x20]+"
+var SINGLEQUOTEDVALUE = "'[^']*'"
+var DOUBLEQUOTEDVALUE = `"[^"]*"`
+var ATTRIBUTEVALUE = "(?:" + UNQUOTEDVALUE + "|" + SINGLEQUOTEDVALUE + "|" + DOUBLEQUOTEDVALUE + ")"
+var ATTRIBUTEVALUESPEC = "(?:" + "\\s*=" + "\\s*" + ATTRIBUTEVALUE + ")"
+var ATTRIBUTE = "(?:" + "\\s+" + ATTRIBUTENAME + ATTRIBUTEVALUESPEC + "?)"
+var OPENTAG = "<" + TAGNAME + ATTRIBUTE + "*" + "\\s*/?>"
+var CLOSETAG = "</" + TAGNAME + "\\s*[>]"
+var HTMLCOMMENT = "<!---->|<!--(?:-?[^>-])(?:-?[^-])*-->"
+var PROCESSINGINSTRUCTION = "[<][?].*?[?][>]"
+var DECLARATION = "<![A-Z]+" + "\\s+[^>]*>"
+var CDATA = "<!\\[CDATA\\[[\\s\\S]*?\\]\\]>"
+var HTMLTAG = "(?:" + OPENTAG + "|" + CLOSETAG + "|" + HTMLCOMMENT + "|" +
+	PROCESSINGINSTRUCTION + "|" + DECLARATION + "|" + CDATA + ")"
+var reHtmlTag = regexp.MustCompile(`(?i)^` + HTMLTAG)
+
+// var reBackslashOrAmp = /[\\&]/;
+
+var ESCAPABLE = "[!\"#$%&'()*+,./:;<=>?@\\\\^_`{|}~-]"
+
+var reEntityOrEscapedChar = regexp.MustCompile(`\\` + ESCAPABLE + `|` + ENTITY)
+
+//var XMLSPECIAL = '[&<>"]';
+
+//var reXmlSpecial = new RegExp(XMLSPECIAL, 'g');
+
+var reHtmlBlockOpen = [...]*regexp.Regexp{
+	0: nil,
+	1: regexp.MustCompile(`(?i)^<(?:script|pre|style)(?:\s|>|$)`),
+	2: regexp.MustCompile(`^<!--`),
+	3: regexp.MustCompile(`^<[?]`),
+	4: regexp.MustCompile(`^<![A-Z]`),
+	5: regexp.MustCompile(`^<!\[CDATA\[`),
+	6: regexp.MustCompile(`(?i)^<[/]?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[123456]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|section|source|title|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:\s|[/]?[>]|$)`),
+	7: regexp.MustCompile(`(?i)^(?:` + OPENTAG + `|` + CLOSETAG + `)\s*$`),
+}
+
+var reHtmlBlockClose = [...]*regexp.Regexp{
+	0: nil,
+	1: regexp.MustCompile(`(?i)<\/(?:script|pre|style)>`),
+	2: regexp.MustCompile(`-->`),
+	3: regexp.MustCompile(`\?>`),
+	4: regexp.MustCompile(`>`),
+	5: regexp.MustCompile(`\]\]>`),
+}
+
+//                                       /^(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})[ \t]*$/;
+var reThematicBreak = regexp.MustCompile(`^(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})[ \t]*$`)
+
+var reMaybeSpecial = regexp.MustCompile("^[#`~*+_=<>0-9-]`")
+
+var reNonSpace = regexp.MustCompile(`[^ \t\f\v\r\n]`)
+
+var reBulletListMarker = regexp.MustCompile(`^[*+-]`)
+
+var reOrderedListMarker = regexp.MustCompile(`^(\d{1,9})([.)])`)
+
+var reATXHeadingMarker = regexp.MustCompile(`^#{1,6}(?:[ \t]+|$)`)
+
+var reCodeFence1 = regexp.MustCompile("^(`{3,})(?:[^`]*$)")
+var reCodeFence2 = regexp.MustCompile("^(~{3,})")
+
+var reClosingCodeFence = regexp.MustCompile("^(?:`{3,}|~{3,})")
+
+var reSetextHeadingLine = regexp.MustCompile(`^(?:=+|-+)[ \t]*$`)
+
+var reLineEnding = regexp.MustCompile(`\r\n|\n|\r`)
+
+type Pos struct {
+	StartLine   int
+	StartColumn int
+	EndLine     int
+	EndColumn   int
+}
+
 // Parser is a markdown parser.
 type Parser struct {
 	doc *Document
 
-	tip Blocker
+	tip INode
 
 	// Line Status
 	blank                bool // Is this line a blank line?
@@ -25,10 +103,18 @@ type Parser struct {
 	nextNonspaceColumn   int
 	partiallyComsumedTab bool
 	line                 []rune
+	s                    string
+
+	allClosed            bool
+	oldTip               INode
+	lastMatchedContainer INode
+	ln                   int
+	lastLineLength       int
 }
 
 func (p *Parser) reset(line []rune) {
 	p.line = line
+	p.s = string(line)
 	p.blank = false
 	p.offset = 0
 	p.column = 0
@@ -39,7 +125,7 @@ var doc *Document
 var p *Parser
 
 // column starts from 0, not common 1.
-func findNextNonspace(s []rune) {
+func findNextNonspace() {
 	offset := p.offset
 	column := p.column
 
@@ -100,139 +186,12 @@ func advanceOffset(count int, column bool) {
 	}
 }
 
-func skipPrefixSpaces(s []rune, max int) (int, []rune) {
-	n := 0
-	for len(s) > n && s[n] == ' ' {
-		n++
-	}
-	if max == -1 || n <= max {
-		return n, s[n:]
-	}
-	return n, s
-}
-
-func skipIf(s []rune, c rune) []rune {
-	if len(s) > 0 && s[0] == c {
-		s = s[1:]
-	}
-	return s
-}
-
-func addLine(pBlocks *[]Blocker, s []rune) bool {
-	if len(s) == 0 {
-		return false
-	}
-
-	blocks := *pBlocks
-
-	defer func() {
-		*pBlocks = blocks
-	}()
-
-	if len(blocks) > 0 && blocks[len(blocks)-1].AddLine(p, s) {
-		return true
-	}
-
-	os := s
-
-	findNextNonspace(s)
-
-	if !p.indented {
-		s = s[p.nextNonspace:]
-
-		if len(s) == 1 && s[0] == '\n' {
-			blocks = append(blocks, &BlankLine{})
-			return true
-		}
-
-		if r, ok := in(s, '-', '_', '*'); ok {
-			if hr := tryParseHorizontalRule(s, r); hr != nil {
-				blocks = append(blocks, hr)
-				return true
-			}
-		}
-
-		if _, ok := in(s, '=', '-'); ok {
-			if heading := tryParseSetextHeadingUnderline(s); heading != nil {
-				// The lines of text must be such that, were they not followed by the setext heading underline, they would be interpreted as a paragraph.
-				// The setext heading underline cannot be a lazy continuation line in a list item or block quote.
-				if pp, ok := p.tip.(*Paragraph); ok && !pp.lazying {
-					blocks = append(blocks, heading)
-					return true
-				}
-			}
-		}
-
-		if _, ok := in(s, '#'); ok {
-			heading := tryParseAtxHeading(s)
-			if heading != nil {
-				blocks = append(blocks, heading)
-				return true
-			}
-		}
-
-		if r, ok := in(s, '`', '~'); ok {
-			cb := tryParseFencedCodeBlockStart(s, r, p.offset)
-			if cb != nil {
-				blocks = append(blocks, cb)
-				return true
-			}
-		}
-
-		if _, ok := in(s, '>'); ok {
-			var bq *BlockQuote
-			if len(blocks) > 0 {
-				if pbq, ok := blocks[len(blocks)-1].(*BlockQuote); ok {
-					bq = pbq
-				}
-			}
-			bq, _ = tryParseBlockQuote(s, bq)
-			if bq != nil {
-				blocks = append(blocks, bq)
-				return true
-			}
-		}
-
-		if _, ok := in(s, '<'); ok {
-			if hb := tryParseHtmlBlock(os); hb != nil {
-				blocks = append(blocks, hb)
-				return true
-			}
-		}
-
-		_, maybeListMarker := in(s, '-', '+', '*')
-		maybeListStart := '0' <= s[0] && s[0] <= '9'
-		if maybeListMarker || maybeListStart {
-			list := &List{}
-			if list.AddLine(p, os) {
-				blocks = append(blocks, list)
-				return true
-			}
-		}
-
-		p := &Paragraph{}
-		p.texts = append(p.texts, string(s))
-		blocks = append(blocks, p)
-		return true
-	} else {
-		var cb *CodeBlock
-		if len(blocks) > 0 {
-			if pcb, ok := blocks[len(blocks)-1].(*CodeBlock); ok {
-				cb = pcb
-			}
-		}
-		if cb == nil {
-			cb = &CodeBlock{}
-			blocks = append(blocks, cb)
-		}
-		return cb.AddLine(p, os)
-	}
-
-	return false
-}
-
 func isSpace(c rune) bool {
 	return c == ' '
+}
+
+func isSpaceOrTab(c byte) bool {
+	return c == ' ' || c == '\t'
 }
 
 func isPunctuation(r rune) bool {
@@ -244,26 +203,6 @@ var reBlankLine = regexp.MustCompile(`^\s*$`)
 
 func isBlankLine(r []rune) bool {
 	return reBlankLine.MatchString(string(r))
-}
-
-func peekSpaces(r []rune, atMost int) ([]rune, int) {
-	n := 0
-	for n < atMost && n < len(r) && isSpace(r[n]) {
-		n++
-	}
-	return r, n
-}
-
-func skipEnding(c []rune) ([]rune, bool) {
-	if len(c) <= 0 {
-		return c, true
-	}
-
-	if c[0] == '\n' {
-		return c[1:], true
-	}
-
-	return c, false
 }
 
 func is(c []rune, r rune) bool {
@@ -293,322 +232,31 @@ var ls *LineScanner
 
 func Parse(in io.Reader) *Document {
 	doc = &Document{}
+	doc.node = doc
 	p = &Parser{}
 	p.doc = doc
+	p.tip = doc
 
 	doc.links = make(map[string]*LinkReferenceDefinition)
 
 	ls = NewLineScanner(in)
 
+	i := 0
+
 	for ls.Scan() {
-		doc.AddLine(p, ls.Text())
-		tryMergeSetextHeading(&doc.blocks)
+		if i++; i == 7 {
+			i += 0
+		}
+		p.incorporateLine(ls.Text())
 	}
 
-	doc.parseDefinitions()
+	for p.tip != nil {
+		p.finalize(p.tip, p.ln)
+	}
+
 	doc.parseInlines()
 
 	return doc
-}
-
-func tryParseHorizontalRule(c []rune, start rune) *HorizontalRule {
-	i := 0
-	loop := true
-	n := 0
-	oc := c
-
-	for loop && i < len(c) {
-		switch c[i] {
-		case start:
-			n++
-			i++
-		case ' ', '\t':
-			i++
-		default:
-			loop = false
-		}
-	}
-
-	if n < 3 {
-		return nil
-	}
-
-	if _, ok := skipEnding(c[i:]); ok {
-		return &HorizontalRule{Marker: start, s: oc}
-	}
-
-	return nil
-}
-
-func tryParseAtxHeading(c []rune) *Heading {
-	i, n := 0, 0
-	for i < len(c) && c[i] == '#' {
-		n++
-		i++
-	}
-
-	// 1–6 unescaped # characters
-	if n <= 0 || n >= 7 {
-		return nil
-	}
-
-	// eof
-	if i >= len(c) {
-		return &Heading{Level: n}
-	}
-
-	// end of line
-	if c[i] == '\n' {
-		return &Heading{Level: n}
-	}
-
-	// not followed by a space
-	if c[i] != ' ' && c[i] != '\t' {
-		return nil
-	}
-
-	i++
-
-	start := i
-
-	lastHash := 0
-
-	// skip to line ending
-	for i < len(c) && c[i] != '\n' {
-		if c[i] == '#' {
-			lastHash = i
-		}
-		i++
-	}
-
-	cEnd := i
-
-	// skip \n
-	if i < len(c) {
-		cEnd++
-	}
-
-	end := i
-
-	// The optional closing sequence of #s ...
-	if lastHash != 0 {
-		// ... be followed by spaces only.
-		j := end - 1
-		for c[j] == ' ' {
-			j--
-		}
-
-		// an optional closing sequence of any number of unescaped # characters
-		for c[j] == '#' {
-			j--
-		}
-
-		//  ... preceded by a space ...
-		if j > start {
-			if c[j] == ' ' {
-				j--
-				end = j + 1
-			}
-		} else {
-			end = start
-		}
-	}
-
-	// The raw contents of the heading are stripped of
-	// leading and trailing spaces before being parsed as inline content
-	text := string(c[start:end])
-	text = strings.TrimSpace(text)
-
-	return &Heading{
-		Level: n,
-		text:  text,
-	}
-}
-
-func tryParseSetextHeadingUnderline(c []rune) *SetextHeading {
-	oc := c
-	start := c[0]
-	i := 0
-	for c[i] == start {
-		i++
-	}
-	for c[i] == ' ' {
-		i++
-	}
-	if i == len(c) || c[i] == '\n' {
-		level := 1
-		if start == '-' {
-			level = 2
-		}
-		return &SetextHeading{
-			line:  oc,
-			level: level,
-		}
-	}
-	return nil
-}
-
-func tryParseFencedCodeBlockStart(c []rune, marker rune, indent int) *CodeBlock {
-	cb := &CodeBlock{}
-	cb.fenceIndent = indent
-	cb.fenceMarker = marker
-
-	i := 0
-
-	// count markers
-	for i < len(c) && c[i] == marker {
-		i++
-	}
-
-	// at least three consecutive backtick characters (`) or tildes (~)
-	if i < 3 {
-		return nil
-	}
-
-	cb.fenceLength = i
-
-	// The line with the opening code fence may optionally
-	// contain some text following the code fence;
-	// this is trimmed of leading and trailing whitespace and called the info string.
-	s := []rune{}
-	for i < len(c) {
-		switch c[i] {
-		case '\\':
-			if r, ok := parseEscape(c[i:]); ok {
-				s = append(s, r)
-				i += 2
-			} else {
-				s = append(s, '\\')
-				i++
-			}
-		case '&':
-			if nc, cp1, cp2, ok := tryParseHtmlEntity(c[i:]); ok {
-				i = 0
-				c = nc
-				if cp1 == 0 {
-					cp1 = utf8.RuneError
-				}
-				r := []rune{cp1}
-				if cp2 != 0 {
-					r = append(r, cp2)
-				}
-				s = append(s, r...)
-			} else {
-				s = append(s, '&')
-				i++
-			}
-		default:
-			s = append(s, c[i])
-			i++
-		}
-	}
-	info := strings.TrimSpace(string(s))
-
-	// If the info string comes after a backtick fence, it may not contain any backtick characters.
-	// The reason for this restriction is that otherwise some inline code would be
-	// incorrectly interpreted as the beginning of a fenced code block.
-	if marker == '`' && strings.IndexByte(info, byte('`')) != -1 {
-		return nil
-	}
-
-	cb.Info = info
-
-	if p := strings.IndexFunc(info, unicode.IsSpace); p != -1 {
-		cb.Lang = info[:p]
-		cb.Args = info[p:]
-	} else {
-		cb.Lang = info
-	}
-
-	return cb
-}
-
-func tryParseCodeSpan(c []rune) ([]rune, *CodeSpan) {
-	i := 0
-
-	// a string of one or more backtick characters
-	startTickCount := 0
-	for i < len(c) && c[i] == '`' {
-		startTickCount++
-		i++
-	}
-
-	// eof, leave it unchanged
-	if i == len(c) {
-		return c, nil
-	}
-
-	var text string
-
-	ap := func(s []rune) {
-		text += string(s)
-	}
-
-	for i < len(c) {
-		start := i
-
-		for {
-			// count to line ending
-			for i < len(c) && c[i] != '`' && c[i] != '\n' {
-				i++
-			}
-
-			// eof
-			if i == len(c) {
-				return c, nil
-			}
-
-			// eol
-			if c[i] == '\n' {
-				// for `First, line endings are converted to spaces.`
-				ap(c[start:i])
-				ap([]rune(" "))
-				i++
-				break
-			}
-
-			endTickStart := i
-
-			for i < len(c) && c[i] == '`' {
-				i++
-			}
-
-			if i-endTickStart == startTickCount {
-				ap(c[start:endTickStart])
-				goto exit
-			}
-
-			// eof
-			if i == len(c) {
-				return c, nil
-			}
-		}
-	}
-
-exit:
-
-	return c[i:], &CodeSpan{
-		text: text,
-	}
-}
-
-func tryParseBlockQuote(s []rune, bq *BlockQuote) (*BlockQuote, bool) {
-	_, s = skipPrefixSpaces(s, 3)
-
-	if len(s) == 0 || s[0] != '>' {
-		return bq, false
-	}
-
-	// skip '>'
-	s = s[1:]
-
-	// skip ' '
-	s = skipIf(s, ' ')
-
-	if bq == nil {
-		bq = &BlockQuote{}
-	}
-	return bq, addLine(&bq.blocks, s)
 }
 
 func parseInlinesToDeimiters(raw string) (*list.List, *list.List) {
@@ -1354,102 +1002,11 @@ func parseLinkTitle(c []rune) ([]rune, string, bool) {
 		return nil, "", false
 	}
 
-	title := string(dest)
+	title := unescapeString(string(dest))
 
 	i++ // skip marker
 
 	return c[i:], title, true
-}
-
-func parseUriAutoLink(c []rune) ([]rune, *Link, bool) {
-	if len(c) == 0 {
-		return nil, nil, false
-	}
-
-	i := 0
-	if c[i] != '<' {
-		return nil, nil, false
-	}
-
-	i++ // skip '<'
-
-	if i == len(c) {
-		return nil, nil, false
-	}
-
-	switch {
-	case 'a' <= c[i] && c[i] <= 'z':
-		break
-	case 'A' <= c[i] && c[i] <= 'Z':
-		break
-	default:
-		return nil, nil, false
-	}
-
-	isSchemeChar := func(ch rune) bool {
-		switch {
-		case 'a' <= ch && ch <= 'z':
-			return true
-		case 'A' <= ch && ch <= 'Z':
-			return true
-		case '0' <= ch && ch <= '9':
-			return true
-		default:
-			switch ch {
-			case '+', '.', '-':
-				return true
-			}
-			return false
-		}
-	}
-
-	schemeStart := i
-	for i < len(c) && isSchemeChar(c[i]) {
-		i++
-	}
-
-	// 2–32 characters
-	if n := i - schemeStart; n < 2 || n > 32 {
-		return nil, nil, false
-	}
-
-	if i == len(c) {
-		return nil, nil, false
-	}
-
-	if c[i] != ':' {
-		return nil, nil, false
-	}
-
-	i++
-
-	// parse opaque
-	for i < len(c) {
-		if c[i] <= ' ' {
-			break
-		}
-		if c[i] == '<' || c[i] == '>' {
-			break
-		}
-		i++
-	}
-	if i == len(c) {
-		return nil, nil, false
-	}
-	if c[i] != '>' {
-		return nil, nil, false
-	}
-
-	full := string(c[schemeStart:i])
-	link := &Link{
-		Link: full,
-		Inlines: []Inline{
-			&Text{
-				Text: full,
-			},
-		},
-	}
-	return c[i+1:], link, true
 }
 
 // https://spec.commonmark.org/0.29/#email-address
@@ -1589,6 +1146,711 @@ func tryParseHtmlEntity(c []rune) (remains []rune, first rune, second rune, oook
 			return c[j:], first, second, true
 		}
 	}
+}
+
+// tryParseLinkReferenceDefinition parses link reference definition from a paragraph.
+func tryParseLinkReferenceDefinition(c []rune) ([]rune, *LinkReferenceDefinition) {
+	i := 0
+	l := LinkReferenceDefinition{}
+
+	nc, label, ok := parseLinkLabel(c)
+	if !ok || label == "[]" {
+		return nil, nil
+	}
+	l.Label = label
+	c = nc
+	i = 0
+
+	// followed by a colon (:)
+	if i == len(c) || c[i] != ':' {
+		return nil, nil
+	}
+
+	i++ // skip ':'
+
+	// optional whitespace (including up to one line ending)
+	for i < len(c) && any(c[i], ' ', '\t') {
+		i++
+	}
+	if i == len(c) {
+		return nil, nil
+	}
+	if c[i] == '\n' {
+		i++
+	}
+
+	nc, dest, ok := parseLinkDestination(c[i:])
+	if !ok {
+		return nil, nil
+	}
+
+	l.Destination = dest
+	c = nc
+	i = 0
+
+	for i < len(c) && any(c[i], ' ', '\t') {
+		i++
+	}
+	if i == len(c) {
+		return c[i:], &l
+	}
+	// if it is present must be separated from the link destination by whitespace
+	if c[i] != '\n' && i < 1 {
+		return nil, nil
+	}
+
+	titleAtNewLine := false
+
+	if c[i] == '\n' {
+		i++
+		titleAtNewLine = true
+	}
+
+	beforeTitle := c[i:]
+
+	nc, title, ok := parseLinkTitle(c[i:])
+	if !ok {
+		if titleAtNewLine {
+			return c[i:], &l
+		}
+		return nil, nil
+	}
+
+	l.Title = title
+	c = nc
+	i = 0
+
+	for i < len(c) && any(c[i], ' ', '\t') {
+		i++
+	}
+
+	if i == len(c) || c[i] == '\n' {
+		if c[i] == '\n' {
+			i++
+		}
+		return c[i:], &l
+	}
+
+	// for 178
+	if !titleAtNewLine {
+		return nil, nil
+	}
+
+	l.Title = ""
+	return beforeTitle, &l
+}
+
+func (p *Parser) closeUnmatchedBlocks() {
+	if p.allClosed {
+		return
+	}
+
+	for p.oldTip != p.lastMatchedContainer {
+		parent := nd(p.oldTip).parent
+		p.finalize(p.oldTip, p.ln-1)
+		p.oldTip = parent
+	}
+
+	p.allClosed = true
+}
+
+func (p *Parser) finalize(node INode, lineNumber int) {
+	parent := nd(node).parent
+	nd(node).closed = true
+	nd(node).EndLine = lineNumber
+	nd(node).EndColumn = p.lastLineLength
+	node.finalize(p)
+	p.tip = parent
+}
+
+func (p *Parser) addChild(node INode, offset int) {
+	for !p.canContain(p.tip, node) {
+		p.finalize(p.tip, p.ln-1)
+	}
+
+	nd(node).node = node
+
+	col := offset + 1 // offset 0 == column 1
+	d := nd(node)
+	d.StartLine = p.ln
+	d.StartColumn = col
+
+	nd(p.tip).appendChild(node)
+	p.tip = node
+}
+
+func (p *Parser) canContain(a INode, b INode) bool {
+	switch a.(type) {
+	case *Document, *BlockQuote, *ListItem:
+		switch b.(type) {
+		case *ListItem:
+			return false
+		default:
+			return true
+		}
+	case *List:
+		switch b.(type) {
+		case *ListItem:
+			return true
+		default:
+			return false
+		}
+	default:
+		return false
+	}
+}
+
+func (p *Parser) nextNonspaceByte() byte {
+	return byte(p.at(p.nextNonspace))
+}
+
+func (p *Parser) offsetByte() byte {
+	return byte(p.at(p.offset))
+}
+
+type startStatus byte
+
+const (
+	ssNoMatch startStatus = iota
+	ssMatchContainer
+	ssMatchLeaf
+)
+
+func startBlockQuote(p *Parser, container INode) startStatus {
+	if !p.indented && p.nextNonspaceByte() == '>' {
+		advanceNextNonspace()
+		advanceOffset(1, false)
+		if isSpaceOrTab(p.offsetByte()) {
+			advanceOffset(1, true)
+		}
+		p.closeUnmatchedBlocks()
+		p.addChild(&BlockQuote{}, p.nextNonspace)
+		return ssMatchContainer
+	}
+	return ssNoMatch
+}
+
+func startAtxHeading(p *Parser, container INode) startStatus {
+	if !p.indented {
+		match := reATXHeadingMarker.FindStringSubmatchIndex(p.s[p.nextNonspace:])
+		if match != nil {
+			advanceNextNonspace()
+			advanceOffset(match[1]-match[0], false)
+			p.closeUnmatchedBlocks()
+			heading := &Heading{}
+			heading.Level = len(strings.TrimSpace(string(p.s[p.nextNonspace:][match[0]:match[1]])))
+			s := string(p.s[p.offset:])
+			s = regexp.MustCompile(`^[ \t]*#+[ \t]*$`).ReplaceAllString(s, "")
+			s = regexp.MustCompile(`[ \t]+#+[ \t]*$`).ReplaceAllString(s, "")
+			heading.text = s
+			p.addChild(heading, p.nextNonspace)
+			advanceOffset(len(p.s)-p.offset, false)
+			return 2
+		}
+	}
+	return 0
+}
+
+func startFencedCodeBlock(p *Parser, container INode) startStatus {
+	if !p.indented {
+		m := reCodeFence1.FindStringSubmatchIndex(p.s[p.nextNonspace:])
+		if m == nil {
+			m = reCodeFence2.FindStringSubmatchIndex(p.s[p.nextNonspace:])
+		}
+		if m != nil {
+			cb := &CodeBlock{}
+			cb.fenceLength = m[3] - m[2]
+			cb.fenceMarker = p.s[p.nextNonspace:][m[2]]
+			cb.fenceIndent = p.indentation
+			p.closeUnmatchedBlocks()
+			p.addChild(cb, p.nextNonspace)
+			advanceNextNonspace()
+			advanceOffset(cb.fenceLength, false)
+			return 2
+		}
+	}
+	return 0
+}
+
+func isParagraph(node INode) bool {
+	switch node.(type) {
+	case *Paragraph:
+		return true
+	default:
+		return false
+	}
+}
+
+func startHtmlBlock(p *Parser, container INode) startStatus {
+	if !p.indented && p.nextNonspaceByte() == '<' {
+		s := p.s[p.nextNonspace:]
+		for i := 1; i < len(reHtmlBlockOpen); i++ {
+			if reHtmlBlockOpen[i].MatchString(s) && (i < 7 || !isParagraph(container)) {
+				p.closeUnmatchedBlocks()
+				hb := &HtmlBlock{}
+				hb.condition = i
+				p.addChild(hb, p.offset)
+				return 2
+			}
+		}
+	}
+	return 0
+}
+
+func startSetextHeading(p *Parser, container INode) startStatus {
+	if !p.indented && isParagraph(container) {
+		m := reSetextHeadingLine.FindStringSubmatchIndex(p.s[p.nextNonspace:])
+		if m != nil {
+			p.closeUnmatchedBlocks()
+			pp := container.(*Paragraph)
+			pp.parseDefinitions()
+			if len(pp.Content) > 0 {
+				heading := &Heading{}
+				heading.Level = 1
+				if p.s[p.nextNonspace:][m[0]] == '-' {
+					heading.Level = 2
+				}
+				heading.text = pp.Content
+				pp.insertAfter(heading)
+				pp.unlink()
+				p.tip = heading
+				advanceOffset(len(p.line)-p.offset, false)
+				return 2
+			}
+		}
+	}
+	return 0
+}
+
+func startThematicBreak(p *Parser, container INode) startStatus {
+	if !p.indented && reThematicBreak.MatchString(p.s[p.nextNonspace:]) {
+		p.closeUnmatchedBlocks()
+		p.addChild(&HorizontalRule{}, p.nextNonspace)
+		advanceOffset(len(p.s)-p.offset, false)
+		return 2
+	}
+	return 0
+}
+
+func startListItem(p *Parser, container INode) startStatus {
+	list, isList := container.(*List)
+	if !p.indented || isList {
+		data := p.parseListMarker(container)
+		if data == nil {
+			return 0
+		}
+		p.closeUnmatchedBlocks()
+
+		if !isList || !(list.Ordered == data.Ordered && list.MarkerChar == data.MarkerChar) {
+			container = &List{
+				Ordered:    data.Ordered,
+				MarkerChar: data.MarkerChar,
+				Start:      data.Start,
+			}
+			p.addChild(container, p.nextNonspace)
+		}
+
+		item := &ListItem{
+			markerOffset: data.MarkerOffset,
+			padding:      data.Padding,
+		}
+
+		p.addChild(item, p.nextNonspace)
+		return 1
+	}
+	return 0
+}
+
+func startIndentedCodeBlock(p *Parser, container INode) startStatus {
+	if p.indented && !p.tipIsParagraph() && !p.blank {
+		advanceOffset(4, true)
+		p.closeUnmatchedBlocks()
+		p.addChild(&CodeBlock{}, p.offset)
+		return 2
+	}
+	return 0
+}
+
+var blockStarts = [...]func(p *Parser, container INode) startStatus{
+	startBlockQuote,
+	startAtxHeading,
+	startFencedCodeBlock,
+	startHtmlBlock,
+	startSetextHeading,
+	startThematicBreak,
+	startListItem,
+	startIndentedCodeBlock,
+}
+
+func (p *Parser) tipIsParagraph() bool {
+	switch p.tip.(type) {
+	case *Paragraph:
+		return true
+	default:
+		return false
+	}
+}
+
+func (p *Parser) matchedLeaf(container INode) bool {
+	switch n := container.(type) {
+	case *Paragraph:
+		return false
+	default:
+		return n.acceptsLines()
+	}
+}
+
+func (p *Parser) incorporateLine(line []rune) {
+	p.ln++
+	p.reset(line)
+	var container INode = p.doc
+	p.oldTip = p.tip
+	allMatched := true
+
+	var lastChild INode
+	for {
+		lastChild = nd(container).lastChild
+		if lastChild == nil || nd(lastChild).closed {
+			break
+		}
+
+		container = lastChild
+
+		findNextNonspace()
+
+		switch container.shouldFollow(p) {
+		case 0:
+			break
+		case 1:
+			allMatched = false
+		case 2:
+			p.lastLineLength = len(line)
+			return
+		default:
+			panic("won't go here")
+		}
+
+		if !allMatched {
+			container = container.getNodeData().parent
+			break
+		}
+	}
+
+	p.allClosed = container == p.oldTip
+	p.lastMatchedContainer = container
+
+	matchedLeaf := p.matchedLeaf(container)
+	for !matchedLeaf {
+		findNextNonspace()
+
+		// TODO
+		i := 0
+		for i < len(blockStarts) {
+			r := blockStarts[i](p, container)
+			if r == ssMatchContainer {
+				container = p.tip
+				break
+			} else if r == ssMatchLeaf {
+				container = p.tip
+				matchedLeaf = true
+				break
+			} else {
+				i++
+			}
+		}
+
+		if i == len(blockStarts) {
+			advanceNextNonspace()
+			break
+		}
+	}
+
+	if p.isLazyParagraphContinuation() {
+		p.addLine()
+		return
+	}
+
+	p.closeUnmatchedBlocks()
+	if p.blank && container.getNodeData().lastChild != nil {
+		container.getNodeData().lastChild.getNodeData().lastLineBlank = true
+	}
+
+	lastLineBlank := p.lastLineBlank(container)
+	for c := container; c != nil; {
+		c.getNodeData().lastLineBlank = lastLineBlank
+		c = c.getNodeData().parent
+	}
+
+	if container.acceptsLines() {
+		p.addLine()
+		if hb, ok := container.(*HtmlBlock); ok {
+			if 1 <= hb.condition && hb.condition <= 5 {
+				s := p.s[p.offset:]
+				if reHtmlBlockClose[hb.condition].MatchString(s) {
+					p.finalize(container, p.ln)
+				}
+			}
+		}
+	} else if p.offset < len(line) && !p.blank {
+		p.addChild(&Paragraph{}, p.offset)
+		advanceNextNonspace()
+		p.addLine()
+	}
+	//p.lastLineLength = len(line)
+}
+
+func (p *Parser) isLazyParagraphContinuation() bool {
+	switch p.tip.(type) {
+	case *Paragraph:
+		return !p.allClosed && !p.blank
+	default:
+		return false
+	}
+}
+
+func (p *Parser) lastLineBlank(container INode) bool {
+	if !p.blank {
+		return false
+	}
+
+	_, isbq := container.(*BlockQuote)
+	cb, iscb := container.(*CodeBlock)
+	li, isli := container.(*ListItem)
+
+	return !(isbq || (iscb && cb.isFenced()) || isli && li.firstChild == nil && li.StartLine == p.ln)
+}
+
+func (p *Parser) endsWithBlank(container INode) bool {
+	isListOrItem := func(c INode) bool {
+		switch c.(type) {
+		case *List, *ListItem:
+			return true
+		default:
+			return false
+		}
+	}
+
+	for container != nil {
+		if container.getNodeData().lastLineBlank {
+			return true
+		}
+
+		if !container.getNodeData().lastLineChecked && isListOrItem(container) {
+			container.getNodeData().lastLineChecked = true
+			container = container.getNodeData().lastChild
+		} else {
+			container.getNodeData().lastLineChecked = true
+			break
+		}
+	}
+
+	return false
+}
+
+func (p *Parser) addLine() {
+	if p.partiallyComsumedTab {
+		p.offset++
+		charsToTab := 4 - p.column%4
+		p.tip.appendText(strings.Repeat(" ", charsToTab))
+	}
+	p.tip.appendText(string(p.line[p.offset:]) + "\n")
+}
+
+func (p *Parser) parseListMarker(container INode) *ListMarkerData {
+	if p.indented {
+		return nil
+	}
+
+	l := ListMarkerData{}
+	l.MarkerOffset = p.indentation
+
+	rest := p.line[p.nextNonspace:]
+	if len(rest) == 0 {
+		return nil
+	}
+
+	markerLength := 0
+
+	if ok := any(rest[0], '-', '+', '*'); ok {
+		l.Ordered = false
+		l.MarkerChar = byte(rest[0])
+		markerLength = 1
+	} else {
+		l.Ordered = true
+		start := 0
+		i := 0
+		for i < len(rest) && '0' <= rest[i] && rest[i] <= '9' {
+			start *= 10
+			start += int(rest[i]) - '0'
+			i++
+		}
+		// ordered list start numbers must be nine digits or less
+		if i > 9 {
+			return nil
+		}
+		if isParagraph(container) && start != 1 {
+			return nil
+		}
+		rest = rest[i:]
+		if len(rest) == 0 {
+			return nil
+		}
+		switch rest[0] {
+		default:
+			return nil
+		case '.', ')':
+			l.MarkerChar = byte(rest[0])
+			l.Start = start
+		}
+		markerLength = i + 1
+	}
+
+	next := p.at(p.nextNonspace + markerLength)
+	if !(next == 0 || isSpaceOrTab(next)) {
+		return nil
+	}
+
+	if isParagraph(container) && isBlankLine(p.line[p.nextNonspace+markerLength:]) {
+		return nil
+	}
+
+	advanceNextNonspace()
+	advanceOffset(markerLength, true)
+
+	spacesStartCol := p.column
+	spacesStartOffset := p.offset
+
+	for {
+		advanceOffset(1, true)
+		nextc := p.at(p.offset)
+		if !(p.column-spacesStartCol < 5 && isSpaceOrTab(nextc)) {
+			break
+		}
+	}
+
+	blankItem := p.at(p.offset) == 0
+	spacesAfterMarker := p.column - spacesStartCol
+	if spacesAfterMarker >= 5 || spacesAfterMarker < 1 || blankItem {
+		l.Padding = markerLength + 1
+		p.column = spacesStartCol
+		p.offset = spacesStartOffset
+		if isSpaceOrTab(p.at(p.offset)) {
+			advanceOffset(1, true)
+		}
+	} else {
+		l.Padding = markerLength + spacesAfterMarker
+	}
+
+	return &l
+}
+
+func (p *Parser) at(offset int) byte {
+	if offset < len(p.line) {
+		return byte(p.line[offset])
+	}
+	return 0
+}
+
+func parseUriAutoLink(c []rune) ([]rune, *Link, bool) {
+	if len(c) == 0 {
+		return nil, nil, false
+	}
+
+	i := 0
+	if c[i] != '<' {
+		return nil, nil, false
+	}
+
+	i++ // skip '<'
+
+	if i == len(c) {
+		return nil, nil, false
+	}
+
+	switch {
+	case 'a' <= c[i] && c[i] <= 'z':
+		break
+	case 'A' <= c[i] && c[i] <= 'Z':
+		break
+	default:
+		return nil, nil, false
+	}
+
+	isSchemeChar := func(ch rune) bool {
+		switch {
+		case 'a' <= ch && ch <= 'z':
+			return true
+		case 'A' <= ch && ch <= 'Z':
+			return true
+		case '0' <= ch && ch <= '9':
+			return true
+		default:
+			switch ch {
+			case '+', '.', '-':
+				return true
+			}
+			return false
+		}
+	}
+
+	schemeStart := i
+	for i < len(c) && isSchemeChar(c[i]) {
+		i++
+	}
+
+	// 2–32 characters
+	if n := i - schemeStart; n < 2 || n > 32 {
+		return nil, nil, false
+	}
+
+	if i == len(c) {
+		return nil, nil, false
+	}
+
+	if c[i] != ':' {
+		return nil, nil, false
+	}
+
+	i++
+
+	// parse opaque
+	for i < len(c) {
+		if c[i] <= ' ' {
+			break
+		}
+		if c[i] == '<' || c[i] == '>' {
+			break
+		}
+		i++
+	}
+	if i == len(c) {
+		return nil, nil, false
+	}
+	if c[i] != '>' {
+		return nil, nil, false
+	}
+
+	full := string(c[schemeStart:i])
+	link := &Link{
+		Link: full,
+		Inlines: []Inline{
+			&Text{
+				Text: full,
+			},
+		},
+	}
+	return c[i+1:], link, true
+}
+
+func skipPrefixSpaces(s []rune, max int) (int, []rune) {
+	n := 0
+	for len(s) > n && s[n] == ' ' {
+		n++
+	}
+	if max == -1 || n <= max {
+		return n, s[n:]
+	}
+	return n, s
 }
 
 func tryParseHtmlTag(c []rune) ([]rune, *HtmlTag) {
@@ -2171,151 +2433,91 @@ func tryParseHtmlBlock(c []rune) *HtmlBlock {
 	return nil
 }
 
-// tryParseLinkReferenceDefinition parses link reference definition from a paragraph.
-func tryParseLinkReferenceDefinition(c []rune) ([]rune, *LinkReferenceDefinition) {
+func tryParseCodeSpan(c []rune) ([]rune, *CodeSpan) {
 	i := 0
-	l := LinkReferenceDefinition{}
 
-	nc, label, ok := parseLinkLabel(c)
-	if !ok || label == "[]" {
-		return nil, nil
-	}
-	l.Label = label
-	c = nc
-	i = 0
-
-	// followed by a colon (:)
-	if i == len(c) || c[i] != ':' {
-		return nil, nil
-	}
-
-	i++ // skip ':'
-
-	// optional whitespace (including up to one line ending)
-	for i < len(c) && any(c[i], ' ', '\t') {
+	// a string of one or more backtick characters
+	startTickCount := 0
+	for i < len(c) && c[i] == '`' {
+		startTickCount++
 		i++
 	}
+
+	// eof, leave it unchanged
 	if i == len(c) {
-		return nil, nil
-	}
-	if c[i] == '\n' {
-		i++
+		return c, nil
 	}
 
-	nc, dest, ok := parseLinkDestination(c[i:])
-	if !ok {
-		return nil, nil
+	var text string
+
+	ap := func(s []rune) {
+		text += string(s)
 	}
 
-	l.Destination = dest
-	c = nc
-	i = 0
+	for i < len(c) {
+		start := i
 
-	for i < len(c) && any(c[i], ' ', '\t') {
-		i++
-	}
-	if i == len(c) {
-		return c[i:], &l
-	}
-	// if it is present must be separated from the link destination by whitespace
-	if c[i] != '\n' && i < 1 {
-		return nil, nil
-	}
+		for {
+			// count to line ending
+			for i < len(c) && c[i] != '`' && c[i] != '\n' {
+				i++
+			}
 
-	titleAtNewLine := false
+			// eof
+			if i == len(c) {
+				return c, nil
+			}
 
-	if c[i] == '\n' {
-		i++
-		titleAtNewLine = true
-	}
+			// eol
+			if c[i] == '\n' {
+				// for `First, line endings are converted to spaces.`
+				ap(c[start:i])
+				ap([]rune(" "))
+				i++
+				break
+			}
 
-	beforeTitle := c[i:]
+			endTickStart := i
 
-	nc, title, ok := parseLinkTitle(c[i:])
-	if !ok {
-		if titleAtNewLine {
-			return c[i:], &l
+			for i < len(c) && c[i] == '`' {
+				i++
+			}
+
+			if i-endTickStart == startTickCount {
+				ap(c[start:endTickStart])
+				goto exit
+			}
+
+			// eof
+			if i == len(c) {
+				return c, nil
+			}
 		}
-		return nil, nil
 	}
 
-	l.Title = title
-	c = nc
-	i = 0
+exit:
 
-	for i < len(c) && any(c[i], ' ', '\t') {
-		i++
+	return c[i:], &CodeSpan{
+		text: text,
 	}
-
-	if i == len(c) || c[i] == '\n' {
-		if c[i] == '\n' {
-			i++
-		}
-		return c[i:], &l
-	}
-
-	// for 178
-	if !titleAtNewLine {
-		return nil, nil
-	}
-
-	l.Title = ""
-	return beforeTitle, &l
 }
 
-func tryMergeSetextHeading(pbs *[]Blocker) {
-	n := len(*pbs)
-	if n < 1 {
-		return
-	}
-
-	blocks := *pbs
-	defer func() { *pbs = blocks }()
-
-	switch typed := blocks[n-1].(type) {
-	case *SetextHeading:
-		if n == 1 {
-			blocks[n-1] = &Paragraph{
-				texts: []string{string(typed.line)},
-			}
-			return
+func unescapeString(s string) string {
+	return reEntityOrEscapedChar.ReplaceAllStringFunc(s, func(f string) string {
+		if f[0] == '\\' {
+			return string(f[1])
 		}
-		if p, ok := blocks[n-2].(*Paragraph); ok {
-			p.parseDefinitions()
-			if len(p.texts) > 0 && len(p.texts[0]) > 0 {
-				heading := Heading{
-					Level: typed.level,
-					text:  strings.Join(p.texts, ""),
-				}
-				blocks[n-2] = &heading
-				blocks = blocks[:n-1]
-				return
-			}
+		_, first, second, ok := tryParseHtmlEntity([]rune(f))
+		if !ok {
+			return f
 		}
-	case *HorizontalRule:
-		if typed.Marker == '-' && n >= 2 {
-			// The setext heading underline cannot contain internal spaces
-			heading := tryParseSetextHeadingUnderline(typed.s)
-			if heading != nil {
-				if p, ok := blocks[n-2].(*Paragraph); ok {
-					p.parseDefinitions()
-					if len(p.texts) > 0 && len(p.texts[0]) > 0 {
-						heading := Heading{
-							Level: 2,
-							text:  strings.Join(p.texts, ""),
-						}
-						blocks[n-2] = &heading
-						blocks = blocks[:n-1]
-						return
-					}
-				}
-			}
+		if first == 0 {
+			first = utf8.RuneError
 		}
-	}
-	switch typed := blocks[n-1].(type) {
-	case *SetextHeading:
-		blocks[n-1] = &Paragraph{
-			texts: []string{string(typed.line)},
+		r := []rune{first}
+		if second != 0 {
+			r = append(r, second)
 		}
-	}
+		return string(r)
+	})
 }

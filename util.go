@@ -3,7 +3,6 @@ package taomd
 import (
 	"bufio"
 	"bytes"
-	"container/list"
 	"fmt"
 	"io"
 	"strings"
@@ -97,13 +96,12 @@ func DumpFail(w io.Writer, markdown string, want string, given string) {
 
 type LineScanner struct {
 	scanner *bufio.Scanner
-	buffers *list.List
 	text    []rune
 }
 
 func NewLineScanner(in io.Reader) *LineScanner {
 	scn := bufio.NewScanner(in)
-	scn.Split(func(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	/*scn.Split(func(data []byte, atEOF bool) (advance int, token []byte, err error) {
 		if atEOF && len(data) == 0 {
 			return 0, nil, nil
 		}
@@ -117,18 +115,13 @@ func NewLineScanner(in io.Reader) *LineScanner {
 		}
 		// Request more data.
 		return 0, nil, nil
-	})
+	})*/
 	return &LineScanner{
 		scanner: scn,
-		buffers: list.New(),
 	}
 }
 
 func (ls *LineScanner) Scan() bool {
-	if ls.buffers.Len() > 0 {
-		ls.text = ls.buffers.Remove(ls.buffers.Front()).([]rune)
-		return true
-	}
 	if ls.scanner.Scan() {
 		ls.text = []rune(ls.scanner.Text())
 		return true
@@ -138,10 +131,6 @@ func (ls *LineScanner) Scan() bool {
 
 func (ls *LineScanner) Text() []rune {
 	return ls.text
-}
-
-func (ls *LineScanner) PutBack(s []rune) {
-	ls.buffers.PushFront(s)
 }
 
 // Percent-encode a string, avoiding double encoding.

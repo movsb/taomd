@@ -9,8 +9,8 @@ import (
 func Render(doc *Document) string {
 	var s string
 
-	for _, block := range doc.blocks {
-		s += toHTML(block)
+	for e := doc.firstChild; e != nil; e = nd(e).next {
+		s += toHTML(e)
 	}
 
 	return s
@@ -83,16 +83,12 @@ func toInline(inline Inline) string {
 	return s
 }
 
-func toHTML(block Blocker) string {
+func toHTML(node INode) string {
 	s := ""
-	switch typed := block.(type) {
+	switch typed := node.(type) {
 	default:
-		panic("unhandled block: " + reflect.TypeOf(typed).String())
+		panic("unhandled node: " + reflect.TypeOf(typed).String())
 	case *Paragraph:
-		// HACK: contents are parsed as link reference definitions.
-		if len(typed.Inlines) == 0 {
-			break
-		}
 		if !typed.Tight {
 			s += "<p>"
 		}
@@ -102,8 +98,6 @@ func toHTML(block Blocker) string {
 		if !typed.Tight {
 			s += "</p>\n"
 		}
-	case *BlankLine:
-		break
 	case *HorizontalRule:
 		_ = typed
 		s += "<hr />\n"
@@ -129,12 +123,11 @@ func toHTML(block Blocker) string {
 		}
 	case *BlockQuote:
 		s += "<blockquote>\n"
-		for _, b := range typed.blocks {
-			s += toHTML(b)
+		for e := typed.firstChild; e != nil; e = nd(e).next {
+			s += toHTML(e)
 		}
 		s += "</blockquote>\n"
 	case *List:
-		typed.deduceIsTight()
 		if typed.Ordered {
 			if typed.Start == 1 {
 				s += "<ol>\n"
@@ -145,43 +138,24 @@ func toHTML(block Blocker) string {
 			s += "<ul>\n"
 		}
 
-		for _, item := range typed.Items {
-			if _, ok := item.(*BlankLine); ok {
-				continue
-			}
-
-			itemBlocks := item.(*ListItem).blocks
-
-			addNewLine := true
-			if len(itemBlocks) > 0 {
-				if _, ok := itemBlocks[0].(*Paragraph); ok {
-					if typed.Tight {
-						addNewLine = false
+		for e := typed.firstChild; e != nil; e = nd(e).next {
+			s += "<li>"
+			for f := nd(e).firstChild; f != nil; f = nd(f).next {
+				if pp, ok := f.(*Paragraph); ok {
+					pp.Tight = typed.Tight
+					if !typed.Tight && f == nd(e).firstChild {
+						s += "\n"
+					}
+				} else {
+					if pp, ok := nd(f).prev.(*Paragraph); ok {
+						if pp.Tight {
+							s += "\n"
+						}
+					} else if f == nd(e).firstChild {
+						s += "\n"
 					}
 				}
-			} else {
-				addNewLine = false
-			}
-			s += "<li>"
-			if addNewLine {
-				s += "\n"
-			}
-
-			var lastParagraph *Paragraph
-			for _, block := range itemBlocks {
-				if _, ok := block.(*BlankLine); ok {
-					continue
-				}
-				if lastParagraph != nil && lastParagraph.Tight {
-					s += "\n"
-				}
-				if p, ok := block.(*Paragraph); ok {
-					p.Tight = typed.Tight
-					lastParagraph = p
-				} else {
-					lastParagraph = nil
-				}
-				s += toHTML(block)
+				s += toHTML(f)
 			}
 			s += "</li>\n"
 		}
@@ -192,9 +166,7 @@ func toHTML(block Blocker) string {
 			s += "</ul>\n"
 		}
 	case *HtmlBlock:
-		for _, line := range typed.Lines {
-			s += string(line)
-		}
+		s += typed.Content
 	}
 	return s
 }
